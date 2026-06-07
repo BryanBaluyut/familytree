@@ -1,0 +1,21 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+
+# Netlify
+.netlify
+deno.lock
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+*.log
