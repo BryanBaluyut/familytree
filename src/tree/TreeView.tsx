@@ -44,11 +44,13 @@ export function TreeView({
 }) {
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 })
   const [smooth, setSmooth] = useState(false)
+  const [pulseTarget, setPulseTarget] = useState<ID | null>(null)
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<View>(view)
   const prevCount = useRef<number | null>(null)
   const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const panStart = useRef<{ x: number; y: number; view: View } | null>(null)
   const pinchStart = useRef<{ dist: number; midX: number; midY: number; view: View } | null>(null)
@@ -132,6 +134,14 @@ export function TreeView({
     const node = data.nodes.find((n) => n.id === selectedId)
     if (node) centerOn(node)
   }, [selectedId, data, centerOn])
+
+  // Briefly pulse the focused card when the selection changes.
+  useEffect(() => {
+    if (!selectedId) return
+    setPulseTarget(selectedId)
+    if (pulseTimer.current) clearTimeout(pulseTimer.current)
+    pulseTimer.current = setTimeout(() => setPulseTarget(null), 1100)
+  }, [selectedId])
 
   // --- pointer gestures: 1 finger / mouse = pan, 2 fingers = pinch-zoom ---
 
@@ -340,7 +350,11 @@ export function TreeView({
                 }}
               >
                 <button
-                  className={'tree-card' + (node.id === selectedId ? ' active' : '')}
+                  className={
+                    'tree-card' +
+                    (node.id === selectedId ? ' active' : '') +
+                    (node.id === pulseTarget ? ' pulse' : '')
+                  }
                   onClick={() => onSelect(node.id)}
                 >
                   <Avatar member={member} size={54} />

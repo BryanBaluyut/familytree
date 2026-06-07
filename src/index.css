@@ -880,6 +880,28 @@ textarea.input {
   box-shadow: 0 0 0 3px var(--accent-weak), var(--shadow);
 }
 
+.tree-card.pulse {
+  animation: card-pulse 1s ease-out;
+}
+
+@keyframes card-pulse {
+  0% {
+    box-shadow: 0 0 0 3px var(--accent-weak), 0 0 0 0 rgba(47, 111, 235, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 3px var(--accent-weak), 0 0 0 18px rgba(47, 111, 235, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 3px var(--accent-weak), 0 0 0 0 rgba(47, 111, 235, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-card.pulse {
+    animation: none;
+  }
+}
+
 .tree-card-name {
   font-weight: 600;
   font-size: 0.9rem;
