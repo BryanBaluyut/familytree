@@ -12,6 +12,8 @@ const NODE_HEIGHT = 140
 const W = NODE_WIDTH / 2
 const H = NODE_HEIGHT / 2
 const CARD_PAD = 10
+const MIN_SCALE = 0.2
+const MAX_SCALE = 2.5
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 
@@ -53,7 +55,11 @@ export function TreeView({
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const fitKey = useRef<ID | null>(null)
-  const drag = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null)
+  // viewRef mirrors the committed view so pointer math never reads stale state.
+  const viewRef = useRef<View>(view)
+  const pointers = useRef(new Map<number, { x: number; y: number }>())
+  const panStart = useRef<{ x: number; y: number; view: View } | null>(null)
+  const pinchStart = useRef<{ dist: number; midX: number; midY: number; view: View } | null>(null)
 
   const effectiveRoot = useMemo<ID | null>(() => {
     if (rootId && memberById(tree, rootId)) return rootId
@@ -66,13 +72,20 @@ export function TreeView({
     [rtNodes, effectiveRoot],
   )
 
-  const applyZoom = useCallback((factor: number, cx: number, cy: number) => {
-    setView((v) => {
-      const scale = clamp(v.scale * factor, 0.2, 2.5)
-      const k = scale / v.scale
-      return { scale, x: cx - k * (cx - v.x), y: cy - k * (cy - v.y) }
-    })
+  const applyView = useCallback((next: View) => {
+    viewRef.current = next
+    setView(next)
   }, [])
+
+  const zoomAround = useCallback(
+    (factor: number, cx: number, cy: number) => {
+      const v = viewRef.current
+      const scale = clamp(v.scale * factor, MIN_SCALE, MAX_SCALE)
+      const k = scale / v.scale
+      applyView({ scale, x: cx - k * (cx - v.x), y: cy - k * (cy - v.y) })
+    },
+    [applyView],
+  )
 
   // Native non-passive wheel listener so we can preventDefault page scroll.
   useEffect(() => {
@@ -81,11 +94,11 @@ export function TreeView({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const rect = el.getBoundingClientRect()
-      applyZoom(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top)
+      zoomAround(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [applyZoom, data])
+  }, [zoomAround, data])
 
   const fitView = useCallback(() => {
     const el = viewportRef.current
@@ -93,9 +106,9 @@ export function TreeView({
     const rect = el.getBoundingClientRect()
     const cw = data.canvas.width * W
     const ch = data.canvas.height * H
-    const scale = clamp(Math.min((rect.width - 64) / cw, (rect.height - 64) / ch, 1.2), 0.2, 1.2)
-    setView({ scale, x: (rect.width - cw * scale) / 2, y: 28 })
-  }, [data])
+    const scale = clamp(Math.min((rect.width - 48) / cw, (rect.height - 48) / ch, 1.2), MIN_SCALE, 1.2)
+    applyView({ scale, x: (rect.width - cw * scale) / 2, y: 24 })
+  }, [data, applyView])
 
   // Auto-fit when the rooted layout first appears or the root changes.
   useLayoutEffect(() => {
@@ -105,21 +118,98 @@ export function TreeView({
     }
   }, [data, effectiveRoot, fitView])
 
+  // --- pointer gestures: 1 finger / mouse = pan, 2 fingers = pinch-zoom ---
+
+  function rectOf() {
+    return viewportRef.current?.getBoundingClientRect()
+  }
+
+  function beginPinch() {
+    const pts = [...pointers.current.values()]
+    const rect = rectOf()
+    if (pts.length < 2 || !rect) return
+    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+    pinchStart.current = {
+      dist: dist || 1,
+      midX: (pts[0].x + pts[1].x) / 2 - rect.left,
+      midY: (pts[0].y + pts[1].y) / 2 - rect.top,
+      view: { ...viewRef.current },
+    }
+    panStart.current = null
+  }
+
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (e.button !== 0) return
-    if ((e.target as HTMLElement).closest('.tree-card')) return // let card clicks through
-    drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }
-    e.currentTarget.setPointerCapture(e.pointerId)
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (pointers.current.size >= 2) {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId)
+      } catch {
+        /* ignore */
+      }
+      beginPinch()
+      return
+    }
+    // single pointer: pan, but let taps on a card through for selection
+    if ((e.target as HTMLElement).closest('.tree-card')) {
+      panStart.current = null
+      return
+    }
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    panStart.current = { x: e.clientX, y: e.clientY, view: { ...viewRef.current } }
   }
 
   function onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    const d = drag.current
-    if (!d) return
-    setView((v) => ({ ...v, x: d.vx + (e.clientX - d.x), y: d.vy + (e.clientY - d.y) }))
+    if (!pointers.current.has(e.pointerId)) return
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+
+    if (pointers.current.size >= 2 && pinchStart.current) {
+      const pts = [...pointers.current.values()]
+      const rect = rectOf()
+      if (!rect) return
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+      const midX = (pts[0].x + pts[1].x) / 2 - rect.left
+      const midY = (pts[0].y + pts[1].y) / 2 - rect.top
+      const start = pinchStart.current
+      const scale = clamp(start.view.scale * (dist / start.dist), MIN_SCALE, MAX_SCALE)
+      const k = scale / start.view.scale
+      // Anchor the gesture's start midpoint; this folds in both zoom and 2-finger pan.
+      applyView({
+        scale,
+        x: midX - (start.midX - start.view.x) * k,
+        y: midY - (start.midY - start.view.y) * k,
+      })
+      return
+    }
+
+    const pan = panStart.current
+    if (pan && pointers.current.size === 1) {
+      applyView({
+        scale: pan.view.scale,
+        x: pan.view.x + (e.clientX - pan.x),
+        y: pan.view.y + (e.clientY - pan.y),
+      })
+    }
   }
 
-  function endDrag() {
-    drag.current = null
+  function endPointer(e: ReactPointerEvent<HTMLDivElement>) {
+    pointers.current.delete(e.pointerId)
+    if (pointers.current.size < 2) pinchStart.current = null
+    if (pointers.current.size === 1) {
+      const [p] = [...pointers.current.values()]
+      panStart.current = { x: p.x, y: p.y, view: { ...viewRef.current } }
+    } else if (pointers.current.size === 0) {
+      panStart.current = null
+    }
+  }
+
+  function applyZoomCenter(factor: number) {
+    const rect = rectOf()
+    if (rect) zoomAround(factor, rect.width / 2, rect.height / 2)
   }
 
   if (tree.members.length === 0) {
@@ -127,7 +217,7 @@ export function TreeView({
       <div className="canvas-empty">
         <div className="canvas-empty-logo">🌳</div>
         <h2>Start your family tree</h2>
-        <p className="muted">Add a person from the left panel to begin.</p>
+        <p className="muted">Add a person from the menu to begin.</p>
       </div>
     )
   }
@@ -192,9 +282,9 @@ export function TreeView({
         ref={viewportRef}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerLeave={endDrag}
-        style={{ cursor: drag.current ? 'grabbing' : 'grab' }}
+        onPointerUp={endPointer}
+        onPointerCancel={endPointer}
+        style={{ cursor: panStart.current ? 'grabbing' : 'grab' }}
       >
         {!data ? (
           <div className="tree-error muted">
@@ -290,13 +380,6 @@ export function TreeView({
       )}
     </div>
   )
-
-  function applyZoomCenter(factor: number) {
-    const el = viewportRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    applyZoom(factor, rect.width / 2, rect.height / 2)
-  }
 }
 
 function ConnectorLine({ c }: { c: Connector }) {

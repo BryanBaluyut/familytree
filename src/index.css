@@ -258,6 +258,28 @@ textarea.input {
   font-size: 1.3rem;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.menu-btn {
+  display: none;
+  border: 1px solid var(--line);
+  font-size: 1.15rem;
+}
+
+.sidebar-mobile-extra {
+  display: none;
+}
+
+.identity-row {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .header-right {
   display: flex;
   align-items: center;
@@ -609,16 +631,94 @@ textarea.input {
 /* ---------- responsive ---------- */
 
 @media (max-width: 760px) {
-  .editor {
-    position: fixed;
-    inset: 56px 0 0 auto;
-    width: min(360px, 100%);
-    box-shadow: var(--shadow);
-    z-index: 10;
+  .app-header {
+    padding: 0 10px;
   }
 
+  .menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .save-indicator {
+    display: none;
+  }
+
+  .header-right .backup-controls {
+    display: none;
+  }
+
+  .identity {
+    display: none;
+  }
+
+  /* Sidebar becomes a slide-in drawer */
   .app-sidebar {
-    width: 220px;
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    width: min(300px, 85%);
+    flex-direction: column;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    z-index: 40;
+    box-shadow: var(--shadow);
+  }
+
+  .app-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .app-sidebar .member-list {
+    flex: 1;
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 56px 0 0 0;
+    background: rgba(16, 24, 40, 0.4);
+    z-index: 35;
+  }
+
+  .sidebar-mobile-extra {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  .sidebar-mobile-extra .backup-controls {
+    display: flex;
+  }
+
+  .sidebar-mobile-extra .backup-controls .btn {
+    flex: 1;
+  }
+
+  /* Editor + history go full-screen */
+  .editor {
+    position: fixed;
+    inset: 56px 0 0 0;
+    width: 100%;
+    box-shadow: var(--shadow);
+    z-index: 45;
+  }
+
+  .drawer {
+    width: 100%;
+  }
+
+  .member-row {
+    padding: 10px 8px;
+  }
+}
+
+@media (max-width: 400px) {
+  .brand-text {
+    display: none;
   }
 }
 

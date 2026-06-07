@@ -21,6 +21,7 @@ export function FamilyTreeApp({
   const store = useTree(onUnauthorized)
   const [selectedId, setSelectedId] = useState<ID | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   async function logout() {
     await api.logout()
@@ -49,17 +50,33 @@ export function FamilyTreeApp({
 
   const tree = store.tree
 
+  // On phones the sidebar is a drawer; selecting/adding should close it.
+  function selectMember(id: ID) {
+    setSelectedId(id)
+    setSidebarOpen(false)
+  }
+
   function addMember(name: string) {
     const created = store.addMember(name)
-    if (created) setSelectedId(created.id)
+    if (created) selectMember(created.id)
   }
 
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div className="brand">
-          <span className="brand-logo">🌳</span>
-          <strong>Family Tree</strong>
+        <div className="header-left">
+          <button
+            className="icon-btn menu-btn"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Show people"
+            title="People"
+          >
+            ☰
+          </button>
+          <div className="brand">
+            <span className="brand-logo">🌳</span>
+            <strong className="brand-text">Family Tree</strong>
+          </div>
         </div>
         <div className="header-right">
           <SaveIndicator status={store.saveStatus} />
@@ -80,17 +97,33 @@ export function FamilyTreeApp({
       </header>
 
       <div className="app-body">
-        <aside className="app-sidebar">
+        {sidebarOpen && (
+          <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
+        )}
+        <aside className={'app-sidebar' + (sidebarOpen ? ' open' : '')}>
           <MemberList
             tree={tree}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={selectMember}
             onAdd={addMember}
           />
+          {/* Controls that live in the header on desktop, surfaced here on mobile. */}
+          <div className="sidebar-mobile-extra">
+            <BackupControls store={store} />
+            <div className="identity-row">
+              You: <strong>{identity}</strong>{' '}
+              <button className="link-btn" onClick={onChangeIdentity}>
+                change
+              </button>
+            </div>
+            <button className="btn ghost" onClick={() => void logout()}>
+              Log out
+            </button>
+          </div>
         </aside>
 
         <main className="app-canvas">
-          <TreeView tree={tree} selectedId={selectedId} onSelect={setSelectedId} />
+          <TreeView tree={tree} selectedId={selectedId} onSelect={selectMember} />
         </main>
 
         {selectedId && (
@@ -98,7 +131,7 @@ export function FamilyTreeApp({
             store={store}
             memberId={selectedId}
             onClose={() => setSelectedId(null)}
-            onSelect={setSelectedId}
+            onSelect={selectMember}
           />
         )}
       </div>
