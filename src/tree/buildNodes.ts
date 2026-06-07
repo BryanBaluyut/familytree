@@ -65,10 +65,3 @@ function siblingsOf(tree: Tree, id: ID): RTRelation[] {
   }
   return result
 }
-
-/** Pick a sensible default node to centre the view on: a progenitor if any. */
-export function pickDefaultRoot(tree: Tree): ID | null {
-  if (tree.members.length === 0) return null
-  const progenitor = tree.members.find((m) => parentsOf(tree, m.id).length === 0)
-  return (progenitor ?? tree.members[0]).id
-}

@@ -1091,3 +1091,13 @@ textarea.input {
   opacity: 0.35;
   cursor: not-allowed;
 }
+
+.legend-hint {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 760px) {
+  .legend-hint {
+    display: none;
+  }
+}
