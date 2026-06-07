@@ -1,7 +1,7 @@
 // Thin client over the Netlify Functions API. All calls send the session
 // cookie (same-origin) so the shared-password gate protects everything.
 
-import type { Tree } from '@shared/types'
+import type { ChangeLogEntry, Tree } from '@shared/types'
 
 /** Thrown when the server rejects a request for lack of a valid session. */
 export class AuthError extends Error {
@@ -24,10 +24,20 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  /** Whether the current browser already has a valid session. */
-  async session(): Promise<boolean> {
-    const { authed } = await request<{ authed: boolean }>('/api/session')
-    return authed
+  /** Current session: whether authed, and the editor's name (null if unset). */
+  async session(): Promise<{ authed: boolean; name: string | null }> {
+    return request<{ authed: boolean; name: string | null }>('/api/session')
+  },
+
+  /** Set the current editor's display name (stored in the session cookie). */
+  async setIdentity(name: string): Promise<boolean> {
+    const res = await fetch('/api/identity', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+      credentials: 'same-origin',
+    })
+    return res.ok
   },
 
   /** Exchange the shared password for a session cookie. Returns success. */
@@ -75,5 +85,9 @@ export const api = {
 
   async deletePhoto(photoId: string): Promise<void> {
     await request(`/api/photo?id=${encodeURIComponent(photoId)}`, { method: 'DELETE' })
+  },
+
+  getChangelog(): Promise<ChangeLogEntry[]> {
+    return request<ChangeLogEntry[]>('/api/changelog')
   },
 }

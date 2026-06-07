@@ -2,8 +2,9 @@
 //
 // The user posts the shared password to /api/login. If it matches
 // FAMILYTREE_PASSWORD, we issue a cookie holding `<payload>.<hmac>` where the
-// HMAC is signed with FAMILYTREE_SECRET. Every protected endpoint verifies the
-// cookie. Because it's a cookie (not a header), <img src="/api/photo?id=..">
+// HMAC is signed with FAMILYTREE_SECRET. The payload also carries the editor's
+// display name (set later via /api/identity) so changes can be attributed.
+// Because it's a cookie (not a header), <img src="/api/photo?id=..">
 // is authenticated automatically.
 
 import { safeEqual } from './http'
@@ -13,6 +14,11 @@ const MAX_AGE_SECONDS = 60 * 60 * 24 * 30 // 30 days
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
+
+interface Payload {
+  exp: number
+  name?: string
+}
 
 function bytesToB64url(bytes: Uint8Array): string {
   let binary = ''
@@ -43,22 +49,25 @@ async function hmac(secret: string, data: string): Promise<string> {
   return bytesToB64url(new Uint8Array(signature))
 }
 
-export async function createToken(secret: string): Promise<string> {
-  const payload = strToB64url(JSON.stringify({ exp: Date.now() + MAX_AGE_SECONDS * 1000 }))
+export async function createToken(secret: string, name?: string): Promise<string> {
+  const body: Payload = { exp: Date.now() + MAX_AGE_SECONDS * 1000 }
+  if (name) body.name = name
+  const payload = strToB64url(JSON.stringify(body))
   const signature = await hmac(secret, payload)
   return `${payload}.${signature}`
 }
 
-export async function verifyToken(token: string, secret: string): Promise<boolean> {
+async function verify(token: string, secret: string): Promise<Payload | null> {
   const [payload, signature] = token.split('.')
-  if (!payload || !signature) return false
+  if (!payload || !signature) return null
   const expected = await hmac(secret, payload)
-  if (!safeEqual(signature, expected)) return false
+  if (!safeEqual(signature, expected)) return null
   try {
-    const { exp } = JSON.parse(b64urlToStr(payload)) as { exp?: number }
-    return typeof exp === 'number' && exp > Date.now()
+    const data = JSON.parse(b64urlToStr(payload)) as Payload
+    if (typeof data.exp !== 'number' || data.exp <= Date.now()) return null
+    return data
   } catch {
-    return false
+    return null
   }
 }
 
@@ -85,10 +94,23 @@ export function clearSessionCookie(): string {
   return `${COOKIE_NAME}=;${cookieAttrs(0)}`
 }
 
-/** True when the request carries a valid, unexpired session cookie. */
-export async function isAuthenticated(req: Request): Promise<boolean> {
+export interface Session {
+  authed: boolean
+  name?: string
+}
+
+/** Parse and verify the session cookie, returning auth state and editor name. */
+export async function getSession(req: Request): Promise<Session> {
   const secret = process.env.FAMILYTREE_SECRET
-  if (!secret) return false
+  if (!secret) return { authed: false }
   const token = readCookie(req)
-  return token ? verifyToken(token, secret) : false
+  if (!token) return { authed: false }
+  const payload = await verify(token, secret)
+  if (!payload) return { authed: false }
+  return { authed: true, name: payload.name }
+}
+
+/** Convenience: true when the request carries a valid, unexpired session. */
+export async function isAuthenticated(req: Request): Promise<boolean> {
+  return (await getSession(req)).authed
 }

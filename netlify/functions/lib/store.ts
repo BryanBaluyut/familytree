@@ -2,10 +2,13 @@
 // live in a separate store keyed by a generated photo id.
 
 import { getStore } from '@netlify/blobs'
-import type { Tree } from '../../../shared/types'
+import type { ChangeLogEntry, Tree } from '../../../shared/types'
 import { emptyTree } from '../../../shared/types'
 
 const TREE_KEY = 'tree'
+const LOG_KEY = 'changelog'
+const LOG_CAP = 500
+const COALESCE_MS = 5 * 60 * 1000 // merge repeated edits to the same target within 5 min
 
 // Strong consistency so a read right after a write returns the new data
 // (important when the same person edits from two devices).
@@ -39,4 +42,33 @@ export async function loadPhoto(id: string): Promise<StoredPhoto | null> {
 
 export async function deletePhoto(id: string): Promise<void> {
   await photoStore().delete(id)
+}
+
+export async function loadChangelog(): Promise<ChangeLogEntry[]> {
+  const data = (await treeStore().get(LOG_KEY, { type: 'json' })) as ChangeLogEntry[] | null
+  return Array.isArray(data) ? data : []
+}
+
+/** Append entries (oldest-first storage), coalescing rapid repeat edits, capped. */
+export async function appendChangelog(entries: ChangeLogEntry[]): Promise<void> {
+  if (entries.length === 0) return
+  const log = await loadChangelog()
+  for (const entry of entries) {
+    const last = log[log.length - 1]
+    const coalesce =
+      last &&
+      entry.action === 'edit' &&
+      last.action === 'edit' &&
+      last.who === entry.who &&
+      last.targetId === entry.targetId &&
+      Date.parse(entry.at) - Date.parse(last.at) < COALESCE_MS
+    if (coalesce) {
+      last.at = entry.at
+      last.summary = entry.summary
+    } else {
+      log.push(entry)
+    }
+  }
+  const trimmed = log.length > LOG_CAP ? log.slice(log.length - LOG_CAP) : log
+  await treeStore().setJSON(LOG_KEY, trimmed)
 }

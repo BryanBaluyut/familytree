@@ -4,13 +4,23 @@ import { api } from '../api'
 import { useTree } from '../hooks/useTree'
 import { TreeView } from '../tree/TreeView'
 import { BackupControls } from './BackupControls'
+import { ChangeLogPanel } from './ChangeLogPanel'
 import { MemberEditor } from './MemberEditor'
 import { MemberList } from './MemberList'
 import { SaveIndicator } from './SaveIndicator'
 
-export function FamilyTreeApp({ onUnauthorized }: { onUnauthorized: () => void }) {
+export function FamilyTreeApp({
+  identity,
+  onChangeIdentity,
+  onUnauthorized,
+}: {
+  identity: string
+  onChangeIdentity: () => void
+  onUnauthorized: () => void
+}) {
   const store = useTree(onUnauthorized)
   const [selectedId, setSelectedId] = useState<ID | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
 
   async function logout() {
     await api.logout()
@@ -53,7 +63,16 @@ export function FamilyTreeApp({ onUnauthorized }: { onUnauthorized: () => void }
         </div>
         <div className="header-right">
           <SaveIndicator status={store.saveStatus} />
+          <button className="btn ghost small" onClick={() => setShowHistory(true)}>
+            History
+          </button>
           <BackupControls store={store} />
+          <span className="identity" title="You're editing as this name">
+            <span className="identity-name">{identity}</span>
+            <button className="link-btn" onClick={onChangeIdentity}>
+              change
+            </button>
+          </span>
           <button className="btn ghost" onClick={() => void logout()}>
             Log out
           </button>
@@ -83,6 +102,10 @@ export function FamilyTreeApp({ onUnauthorized }: { onUnauthorized: () => void }
           />
         )}
       </div>
+
+      {showHistory && (
+        <ChangeLogPanel onClose={() => setShowHistory(false)} onUnauthorized={onUnauthorized} />
+      )}
     </div>
   )
 }

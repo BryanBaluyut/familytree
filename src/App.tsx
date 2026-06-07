@@ -2,19 +2,25 @@ import { useEffect, useState } from 'react'
 import { api } from './api'
 import { FamilyTreeApp } from './components/FamilyTreeApp'
 import { PasswordGate } from './components/PasswordGate'
+import { WhoAreYou } from './components/WhoAreYou'
+
+interface Auth {
+  authed: boolean
+  name?: string
+}
 
 export default function App() {
   // null = still checking the existing session.
-  const [authed, setAuthed] = useState<boolean | null>(null)
+  const [auth, setAuth] = useState<Auth | null>(null)
 
   useEffect(() => {
     api
       .session()
-      .then(setAuthed)
-      .catch(() => setAuthed(false))
+      .then((s) => setAuth({ authed: s.authed, name: s.name ?? undefined }))
+      .catch(() => setAuth({ authed: false }))
   }, [])
 
-  if (authed === null) {
+  if (auth === null) {
     return (
       <div className="splash">
         <div className="spinner" />
@@ -22,9 +28,19 @@ export default function App() {
     )
   }
 
-  if (!authed) {
-    return <PasswordGate onSuccess={() => setAuthed(true)} />
+  if (!auth.authed) {
+    return <PasswordGate onSuccess={() => setAuth({ authed: true })} />
   }
 
-  return <FamilyTreeApp onUnauthorized={() => setAuthed(false)} />
+  if (!auth.name) {
+    return <WhoAreYou onDone={(name) => setAuth({ authed: true, name })} />
+  }
+
+  return (
+    <FamilyTreeApp
+      identity={auth.name}
+      onChangeIdentity={() => setAuth({ authed: true, name: undefined })}
+      onUnauthorized={() => setAuth({ authed: false })}
+    />
+  )
 }

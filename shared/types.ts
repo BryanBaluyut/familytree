@@ -80,3 +80,19 @@ export const PARENT_TYPE_LABELS: Record<ParentType, string> = {
   step: 'Step',
   foster: 'Foster',
 }
+
+/** A single entry in the family-tree change log. */
+export type ChangeAction = 'add' | 'remove' | 'edit' | 'link' | 'unlink' | 'relink' | 'bulk'
+
+export interface ChangeLogEntry {
+  id: string
+  /** ISO timestamp of the change. */
+  at: string
+  /** Display name of the person who made the change. */
+  who: string
+  action: ChangeAction
+  /** Human-readable description, e.g. 'Added Maria Cruz'. */
+  summary: string
+  /** Member/relationship id this concerns (used to coalesce repeated edits). */
+  targetId?: string
+}
