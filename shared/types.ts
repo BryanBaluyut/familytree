@@ -82,7 +82,15 @@ export const PARENT_TYPE_LABELS: Record<ParentType, string> = {
 }
 
 /** A single entry in the family-tree change log. */
-export type ChangeAction = 'add' | 'remove' | 'edit' | 'link' | 'unlink' | 'relink' | 'bulk'
+export type ChangeAction =
+  | 'add'
+  | 'remove'
+  | 'edit'
+  | 'link'
+  | 'unlink'
+  | 'relink'
+  | 'bulk'
+  | 'restore'
 
 export interface ChangeLogEntry {
   id: string
@@ -95,4 +103,13 @@ export interface ChangeLogEntry {
   summary: string
   /** Member/relationship id this concerns (used to coalesce repeated edits). */
   targetId?: string
+  /** Tree version produced by the save this entry belongs to (a restore point). */
+  version?: number
+}
+
+/** Lightweight descriptor of a stored tree snapshot the user can restore. */
+export interface SnapshotInfo {
+  version: number
+  at: string
+  who: string
 }

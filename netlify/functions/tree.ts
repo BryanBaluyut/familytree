@@ -1,7 +1,7 @@
 import { getSession } from './lib/auth'
 import { computeChanges } from './lib/diff'
 import { badRequest, json, methodNotAllowed, unauthorized } from './lib/http'
-import { appendChangelog, loadTree, saveTree } from './lib/store'
+import { appendChangelog, loadTree, saveSnapshot, saveTree } from './lib/store'
 import type { Tree } from '../../shared/types'
 
 export default async (req: Request): Promise<Response> => {
@@ -39,15 +39,17 @@ export default async (req: Request): Promise<Response> => {
     }
     await saveTree(next)
 
-    // Record who changed what. Never let logging failures break the save.
+    // Record who changed what + keep a restore snapshot. Never let this break the save.
     try {
       const who = session.name || 'Someone'
-      const changes = computeChanges(current, next, who, next.updatedAt as string, () =>
+      const at = next.updatedAt as string
+      const changes = computeChanges(current, next, who, at, next.version, () =>
         crypto.randomUUID(),
       )
       await appendChangelog(changes)
+      await saveSnapshot(next, { version: next.version, at, who })
     } catch (e) {
-      console.error('changelog update failed', e)
+      console.error('changelog/snapshot update failed', e)
     }
 
     return json({ ok: true, tree: next })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ID } from '@shared/types'
 import { api } from '../api'
 import { useTree } from '../hooks/useTree'
@@ -22,6 +22,29 @@ export function FamilyTreeApp({
   const [selectedId, setSelectedId] = useState<ID | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const { undo, redo } = store
+
+  // Keyboard: Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z (or Ctrl+Y) = redo.
+  // Ignored while typing in a field, so text-editing undo still works there.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
+      const key = e.key.toLowerCase()
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [undo, redo])
 
   async function logout() {
     await api.logout()
@@ -61,6 +84,11 @@ export function FamilyTreeApp({
     if (created) selectMember(created.id)
   }
 
+  async function handleRestore(version: number) {
+    await store.restore(version)
+    setSelectedId(null) // a restored member may no longer exist
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -79,6 +107,24 @@ export function FamilyTreeApp({
           </div>
         </div>
         <div className="header-right">
+          <div className="undo-redo">
+            <button
+              className="icon-btn"
+              title="Undo (Ctrl/⌘+Z)"
+              onClick={undo}
+              disabled={!store.canUndo}
+            >
+              ↶
+            </button>
+            <button
+              className="icon-btn"
+              title="Redo (Ctrl/⌘+Shift+Z)"
+              onClick={redo}
+              disabled={!store.canRedo}
+            >
+              ↷
+            </button>
+          </div>
           <SaveIndicator status={store.saveStatus} />
           <button className="btn ghost small" onClick={() => setShowHistory(true)}>
             History
@@ -137,7 +183,12 @@ export function FamilyTreeApp({
       </div>
 
       {showHistory && (
-        <ChangeLogPanel onClose={() => setShowHistory(false)} onUnauthorized={onUnauthorized} />
+        <ChangeLogPanel
+          currentVersion={tree.version}
+          onRestore={handleRestore}
+          onClose={() => setShowHistory(false)}
+          onUnauthorized={onUnauthorized}
+        />
       )}
     </div>
   )

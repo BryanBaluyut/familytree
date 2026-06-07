@@ -1,5 +1,7 @@
 // The single source of truth for the loaded tree. Loads from the API, exposes
-// mutation helpers, and autosaves (debounced + serialized) after every change.
+// mutation helpers, autosaves (debounced + serialized), and keeps an in-session
+// undo/redo history of whole-tree snapshots. Server-side snapshots power
+// restore-from-history (see restore()).
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ID, Member, ParentType, PartnerStatus, Tree } from '@shared/types'
@@ -20,12 +22,20 @@ import {
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
+const HISTORY_CAP = 50
+const COALESCE_MS = 700 // collapse rapid edits (e.g. typing a name) into one undo step
+
 export interface TreeStore {
   tree: Tree | null
   loading: boolean
   loadError: string | null
   saveStatus: SaveStatus
+  canUndo: boolean
+  canRedo: boolean
   reload: () => void
+  undo: () => void
+  redo: () => void
+  restore: (version: number) => Promise<void>
   addMember: (name: string) => Member | null
   updateMember: (member: Member) => void
   deleteMember: (id: ID) => void
@@ -46,18 +56,23 @@ export function useTree(onUnauthorized: () => void): TreeStore {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [canUndo, setCanUndo] = useState(false)
+  const [canRedo, setCanRedo] = useState(false)
 
   // Refs mirror the latest values so callbacks never read stale state.
   const treeRef = useRef<Tree | null>(null)
   const dirty = useRef(false)
-  // True once the user has made any local edit. After that, a late-resolving
-  // reload (e.g. React StrictMode's second mount, or a slow initial GET) must
-  // never overwrite local state.
+  // True once the user has made any local edit; afterwards a late-resolving
+  // reload (React StrictMode's second mount, a slow GET) must not overwrite it.
   const edited = useRef(false)
   const saving = useRef(false)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onUnauth = useRef(onUnauthorized)
   onUnauth.current = onUnauthorized
+
+  const undoStack = useRef<Tree[]>([])
+  const redoStack = useRef<Tree[]>([])
+  const lastEditAt = useRef(0)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -91,12 +106,7 @@ export function useTree(onUnauthorized: () => void): TreeStore {
         try {
           const saved = await api.saveTree(snapshot)
           if (!dirty.current) {
-            // No newer edit arrived while saving: adopt the server version.
-            const merged: Tree = {
-              ...snapshot,
-              version: saved.version,
-              updatedAt: saved.updatedAt,
-            }
+            const merged: Tree = { ...snapshot, version: saved.version, updatedAt: saved.updatedAt }
             treeRef.current = merged
             setTree(merged)
           }
@@ -115,20 +125,87 @@ export function useTree(onUnauthorized: () => void): TreeStore {
     }
   }, [])
 
-  const commit = useCallback(
-    (next: Tree) => {
+  const syncHistoryFlags = useCallback(() => {
+    setCanUndo(undoStack.current.length > 0)
+    setCanRedo(redoStack.current.length > 0)
+  }, [])
+
+  const scheduleSave = useCallback(() => {
+    dirty.current = true
+    setSaveStatus('saving')
+    if (debounce.current) clearTimeout(debounce.current)
+    debounce.current = setTimeout(() => void flush(), 500)
+  }, [flush])
+
+  /**
+   * Apply a new whole-tree state.
+   * - record: push the previous state onto the undo stack (clearing redo).
+   * - save:   persist to the server (skip when the server already saved it).
+   */
+  const applyTree = useCallback(
+    (next: Tree, record: boolean, save: boolean) => {
+      if (record) {
+        const now = Date.now()
+        const coalesce = now - lastEditAt.current < COALESCE_MS
+        lastEditAt.current = now
+        if (!coalesce && treeRef.current) {
+          undoStack.current.push(treeRef.current)
+          if (undoStack.current.length > HISTORY_CAP) undoStack.current.shift()
+        }
+        redoStack.current = []
+        syncHistoryFlags()
+      }
       treeRef.current = next
       setTree(next)
-      dirty.current = true
       edited.current = true
-      setSaveStatus('saving')
-      if (debounce.current) clearTimeout(debounce.current)
-      debounce.current = setTimeout(() => void flush(), 500)
+      if (save) scheduleSave()
     },
-    [flush],
+    [scheduleSave, syncHistoryFlags],
   )
 
-  // Each mutation reads the freshest tree from the ref, applies a pure helper.
+  const commit = useCallback((next: Tree) => applyTree(next, true, true), [applyTree])
+
+  const undo = useCallback(() => {
+    if (undoStack.current.length === 0) return
+    const prev = undoStack.current.pop() as Tree
+    if (treeRef.current) {
+      redoStack.current.push(treeRef.current)
+      if (redoStack.current.length > HISTORY_CAP) redoStack.current.shift()
+    }
+    lastEditAt.current = 0 // break edit-coalescing across an undo
+    syncHistoryFlags()
+    applyTree(prev, false, true)
+  }, [applyTree, syncHistoryFlags])
+
+  const redo = useCallback(() => {
+    if (redoStack.current.length === 0) return
+    const next = redoStack.current.pop() as Tree
+    if (treeRef.current) {
+      undoStack.current.push(treeRef.current)
+      if (undoStack.current.length > HISTORY_CAP) undoStack.current.shift()
+    }
+    lastEditAt.current = 0
+    syncHistoryFlags()
+    applyTree(next, false, true)
+  }, [applyTree, syncHistoryFlags])
+
+  const restore = useCallback(
+    async (version: number) => {
+      const restored = await api.restore(version) // already saved server-side
+      if (treeRef.current) {
+        undoStack.current.push(treeRef.current)
+        if (undoStack.current.length > HISTORY_CAP) undoStack.current.shift()
+      }
+      redoStack.current = []
+      lastEditAt.current = 0
+      syncHistoryFlags()
+      applyTree(restored, false, false)
+    },
+    [applyTree, syncHistoryFlags],
+  )
+
+  // --- mutations: read the freshest tree from the ref, apply a pure helper ---
+
   const addMember = useCallback(
     (name: string): Member | null => {
       const t = treeRef.current
@@ -148,13 +225,12 @@ export function useTree(onUnauthorized: () => void): TreeStore {
     [commit],
   )
 
+  // Note: we intentionally do NOT delete the photo blob here, so undo/restore
+  // can bring the picture back. Orphaned photos are harmless.
   const deleteMember = useCallback(
     (id: ID) => {
       const t = treeRef.current
-      if (!t) return
-      const member = memberById(t, id)
-      if (member?.photoId) void api.deletePhoto(member.photoId).catch(() => {})
-      commit(removeMember(t, id))
+      if (t) commit(removeMember(t, id))
     },
     [commit],
   )
@@ -162,11 +238,8 @@ export function useTree(onUnauthorized: () => void): TreeStore {
   const setPhoto = useCallback(
     async (id: ID, file: File) => {
       const before = treeRef.current
-      if (!before) return
-      const existing = memberById(before, id)
-      if (!existing) return
+      if (!before || !memberById(before, id)) return
       const photoId = await api.uploadPhoto(file)
-      if (existing.photoId) void api.deletePhoto(existing.photoId).catch(() => {})
       const after = treeRef.current
       const current = after && memberById(after, id)
       if (after && current) commit(upsertMember(after, { ...current, photoId }))
@@ -179,9 +252,7 @@ export function useTree(onUnauthorized: () => void): TreeStore {
       const t = treeRef.current
       if (!t) return
       const member = memberById(t, id)
-      if (!member) return
-      if (member.photoId) void api.deletePhoto(member.photoId).catch(() => {})
-      commit(upsertMember(t, { ...member, photoId: undefined }))
+      if (member) commit(upsertMember(t, { ...member, photoId: undefined }))
     },
     [commit],
   )
@@ -260,7 +331,12 @@ export function useTree(onUnauthorized: () => void): TreeStore {
     loading,
     loadError,
     saveStatus,
+    canUndo,
+    canRedo,
     reload,
+    undo,
+    redo,
+    restore,
     addMember,
     updateMember,
     deleteMember,

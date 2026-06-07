@@ -19,3 +19,6 @@ deno.lock
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# Local source material (large media / data not part of the app)
+SourceMedia/

@@ -1072,3 +1072,22 @@ textarea.input {
   color: var(--muted);
   margin-top: 2px;
 }
+
+.log-body {
+  flex: 1;
+}
+
+.log-restore {
+  flex: none;
+  align-self: center;
+}
+
+.undo-redo {
+  display: flex;
+  gap: 2px;
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}

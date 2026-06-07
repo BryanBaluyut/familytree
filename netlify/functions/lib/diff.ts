@@ -12,11 +12,12 @@ export function computeChanges(
   newTree: Tree,
   who: string,
   at: string,
+  version: number,
   newId: IdGen,
 ): ChangeLogEntry[] {
   const entries: ChangeLogEntry[] = []
   const add = (action: ChangeLogEntry['action'], summary: string, targetId?: string) =>
-    entries.push({ id: newId(), at, who, action, summary, targetId })
+    entries.push({ id: newId(), at, who, action, summary, targetId, version })
 
   // Name lookup spanning both trees so removed members still resolve.
   const names = new Map<string, string>()
@@ -69,7 +70,9 @@ export function computeChanges(
     const bits = [`${entries.length} updates`]
     if (added) bits.push(`${added} added`)
     if (removed) bits.push(`${removed} removed`)
-    return [{ id: newId(), at, who, action: 'bulk', summary: `Made bulk changes (${bits.join(', ')})` }]
+    return [
+      { id: newId(), at, who, action: 'bulk', summary: `Made bulk changes (${bits.join(', ')})`, version },
+    ]
   }
 
   return entries

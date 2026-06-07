@@ -1,7 +1,7 @@
 // Thin client over the Netlify Functions API. All calls send the session
 // cookie (same-origin) so the shared-password gate protects everything.
 
-import type { ChangeLogEntry, Tree } from '@shared/types'
+import type { ChangeLogEntry, SnapshotInfo, Tree } from '@shared/types'
 
 /** Thrown when the server rejects a request for lack of a valid session. */
 export class AuthError extends Error {
@@ -89,5 +89,19 @@ export const api = {
 
   getChangelog(): Promise<ChangeLogEntry[]> {
     return request<ChangeLogEntry[]>('/api/changelog')
+  },
+
+  getSnapshots(): Promise<SnapshotInfo[]> {
+    return request<SnapshotInfo[]>('/api/snapshots')
+  },
+
+  /** Roll the tree back to a snapshot version; returns the new saved tree. */
+  async restore(version: number): Promise<Tree> {
+    const { tree } = await request<{ ok: true; tree: Tree }>('/api/restore', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ version }),
+    })
+    return tree
   },
 }
