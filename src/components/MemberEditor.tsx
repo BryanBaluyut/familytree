@@ -12,6 +12,7 @@ import { PARENT_TYPE_LABELS, PARTNER_STATUS_LABELS } from '@shared/types'
 import { childrenOf, memberById, parentsOf, partnersOf } from '../lib/relationships'
 import type { TreeStore } from '../hooks/useTree'
 import { Avatar } from './Avatar'
+import { SortableList } from './SortableList'
 
 export function MemberEditor({
   store,
@@ -122,36 +123,44 @@ export function MemberEditor({
         />
       </label>
 
-      <RelationSection title="Partners">
-        {partners.map(({ partnership, otherId }) => {
-          const other = memberById(tree, otherId)
-          if (!other) return null
-          return (
-            <div className="relation-row" key={partnership.id}>
-              <PersonButton name={other.name} memberId={otherId} tree={tree} onSelect={onSelect} />
-              <select
-                className="input small"
-                value={partnership.status}
-                onChange={(e) =>
-                  store.setPartnerStatus(partnership.id, e.target.value as PartnerStatus)
-                }
-              >
-                {Object.entries(PARTNER_STATUS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <button
-                className="icon-btn"
-                title="Remove partner link"
-                onClick={() => store.unlinkPartner(partnership.id)}
-              >
-                ✕
-              </button>
-            </div>
-          )
-        })}
+      <RelationSection title="Partners" hint={partners.length > 1 ? 'drag to reorder · earliest on the left' : undefined}>
+        <SortableList
+          onReorder={(ids) => store.reorderPartners(member.id, ids)}
+          items={partners
+            .map(({ partnership, otherId }) => {
+              const other = memberById(tree, otherId)
+              if (!other) return null
+              return {
+                id: otherId,
+                content: (
+                  <>
+                    <PersonButton name={other.name} memberId={otherId} tree={tree} onSelect={onSelect} />
+                    <select
+                      className="input small"
+                      value={partnership.status}
+                      onChange={(e) =>
+                        store.setPartnerStatus(partnership.id, e.target.value as PartnerStatus)
+                      }
+                    >
+                      {Object.entries(PARTNER_STATUS_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="icon-btn"
+                      title="Remove partner link"
+                      onClick={() => store.unlinkPartner(partnership.id)}
+                    >
+                      ✕
+                    </button>
+                  </>
+                ),
+              }
+            })
+            .filter((it): it is { id: string; content: JSX.Element } => it !== null)}
+        />
         <AddRelation
           tree={tree}
           placeholder="new partner"
@@ -206,36 +215,44 @@ export function MemberEditor({
         />
       </RelationSection>
 
-      <RelationSection title="Children">
-        {children.map(({ parentage, childId }) => {
-          const child = memberById(tree, childId)
-          if (!child) return null
-          return (
-            <div className="relation-row" key={parentage.id}>
-              <PersonButton name={child.name} memberId={childId} tree={tree} onSelect={onSelect} />
-              <select
-                className="input small"
-                value={parentage.type}
-                onChange={(e) =>
-                  store.setParentageType(parentage.id, e.target.value as ParentType)
-                }
-              >
-                {Object.entries(PARENT_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <button
-                className="icon-btn"
-                title="Remove child link"
-                onClick={() => store.unlinkParentage(parentage.id)}
-              >
-                ✕
-              </button>
-            </div>
-          )
-        })}
+      <RelationSection title="Children" hint={children.length > 1 ? 'drag to reorder · firstborn on the left' : undefined}>
+        <SortableList
+          onReorder={(ids) => store.reorderChildren(member.id, ids)}
+          items={children
+            .map(({ parentage, childId }) => {
+              const child = memberById(tree, childId)
+              if (!child) return null
+              return {
+                id: childId,
+                content: (
+                  <>
+                    <PersonButton name={child.name} memberId={childId} tree={tree} onSelect={onSelect} />
+                    <select
+                      className="input small"
+                      value={parentage.type}
+                      onChange={(e) =>
+                        store.setParentageType(parentage.id, e.target.value as ParentType)
+                      }
+                    >
+                      {Object.entries(PARENT_TYPE_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="icon-btn"
+                      title="Remove child link"
+                      onClick={() => store.unlinkParentage(parentage.id)}
+                    >
+                      ✕
+                    </button>
+                  </>
+                ),
+              }
+            })
+            .filter((it): it is { id: string; content: JSX.Element } => it !== null)}
+        />
         <AddRelation
           tree={tree}
           placeholder="new child"
@@ -257,14 +274,19 @@ export function MemberEditor({
 
 function RelationSection({
   title,
+  hint,
   children,
 }: {
   title: string
+  hint?: string
   children: ReactNode
 }) {
   return (
     <section className="relation-section">
-      <h3>{title}</h3>
+      <h3>
+        {title}
+        {hint && <span className="relation-hint muted"> · {hint}</span>}
+      </h3>
       {children}
     </section>
   )

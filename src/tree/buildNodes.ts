@@ -41,10 +41,16 @@ export function buildNodes(tree: Tree): RTNode[] {
       id: childId,
       type: parentTypeToRT(parentage.type),
     })),
-    spouses: partnersOf(tree, m.id).map(({ otherId, partnership }) => ({
-      id: otherId,
-      type: spouseStatusToRT(partnership.status),
-    })),
+    // partnersOf is ordered earliest-first, but relatives-tree lays extra spouses
+    // out right-to-left (array[0] ends up rightmost). Reverse so the earliest
+    // partner (top of the editor list) is drawn furthest LEFT, matching children.
+    spouses: partnersOf(tree, m.id)
+      .slice()
+      .reverse()
+      .map(({ otherId, partnership }) => ({
+        id: otherId,
+        type: spouseStatusToRT(partnership.status),
+      })),
     siblings: siblingsOf(tree, m.id),
   }))
 }

@@ -15,6 +15,8 @@ import {
   removeMember,
   removeParentage,
   removePartnership,
+  reorderChildren,
+  reorderPartners,
   updateParentage,
   updatePartnership,
   upsertMember,
@@ -48,6 +50,8 @@ export interface TreeStore {
   linkParent: (child: ID, parent: ID, type?: ParentType) => void
   setParentageType: (parentageId: ID, type: ParentType) => void
   unlinkParentage: (parentageId: ID) => void
+  reorderPartners: (memberId: ID, orderedPartnerIds: ID[]) => void
+  reorderChildren: (parentId: ID, orderedChildIds: ID[]) => void
   replaceTree: (data: Pick<Tree, 'members' | 'partnerships' | 'parentages'>) => void
 }
 
@@ -313,6 +317,22 @@ export function useTree(onUnauthorized: () => void): TreeStore {
     [commit],
   )
 
+  const reorderPartnersCb = useCallback(
+    (memberId: ID, orderedPartnerIds: ID[]) => {
+      const t = treeRef.current
+      if (t) commit(reorderPartners(t, memberId, orderedPartnerIds))
+    },
+    [commit],
+  )
+
+  const reorderChildrenCb = useCallback(
+    (parentId: ID, orderedChildIds: ID[]) => {
+      const t = treeRef.current
+      if (t) commit(reorderChildren(t, parentId, orderedChildIds))
+    },
+    [commit],
+  )
+
   const replaceTree = useCallback(
     (data: Pick<Tree, 'members' | 'partnerships' | 'parentages'>) => {
       const base = treeRef.current ?? emptyTree()
@@ -349,6 +369,8 @@ export function useTree(onUnauthorized: () => void): TreeStore {
     linkParent,
     setParentageType,
     unlinkParentage,
+    reorderPartners: reorderPartnersCb,
+    reorderChildren: reorderChildrenCb,
     replaceTree,
   }
 }

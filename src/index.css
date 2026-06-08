@@ -571,6 +571,49 @@ textarea.input {
   gap: 6px;
 }
 
+.relation-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.sortable {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sortable-row.dragging {
+  opacity: 0.65;
+  background: var(--panel-2);
+  border-radius: 8px;
+}
+
+.drag-handle {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: grab;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 6px 3px;
+  border-radius: 6px;
+  /* let pointer-drag work on touch without the panel scrolling */
+  touch-action: none;
+  user-select: none;
+}
+
+.drag-handle:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
 .relation-person {
   display: flex;
   align-items: center;

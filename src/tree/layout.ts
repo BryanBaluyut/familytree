@@ -93,7 +93,7 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
 
   const placedIds = new Set<string>()
   const treeClusters: Candidate[] = []
-  const separate: string[] = []
+  let separate: string[] = []
   for (const root of roots) {
     if (placedIds.has(root)) continue // already covered by a bigger cluster
     const c = calcCluster(root)
@@ -138,10 +138,133 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
     maxRight = Math.max(maxRight, x - GAP)
   }
 
-  return {
-    canvas: { width: Math.max(maxRight, rowTarget), height: y + rowH },
-    nodes: placed,
-    connectors,
-    separate,
+  // Attach "orphaned" children. relatives-tree lays out a single bloodline from a
+  // root and won't descend into a married-in spouse's *solo* child, so such a
+  // child would otherwise fall into `separate` with no line drawn (you'd only see
+  // it once you also added the bloodline co-parent). Here we hang any unplaced
+  // member that has a *placed* parent directly below that parent and draw the
+  // connector ourselves. Handles chains (an orphan's own children) by iterating.
+  attachOrphans(rtNodes, placed, connectors, (separate = [...separate]))
+
+  // Attachment (and centering under an edge parent) can produce negative offsets;
+  // shift everything back into the >= 0 canvas space.
+  let minLeft = 0
+  let minTop = 0
+  for (const n of placed) {
+    minLeft = Math.min(minLeft, n.left)
+    minTop = Math.min(minTop, n.top)
   }
+  for (const c of connectors) {
+    minLeft = Math.min(minLeft, c[0])
+    minTop = Math.min(minTop, c[1])
+  }
+  if (minLeft < 0 || minTop < 0) {
+    const dx = -Math.min(0, minLeft)
+    const dy = -Math.min(0, minTop)
+    for (const n of placed) {
+      n.left += dx
+      n.top += dy
+    }
+    for (let i = 0; i < connectors.length; i++) {
+      const c = connectors[i]
+      connectors[i] = [c[0] + dx, c[1] + dy, c[2] + dx, c[3] + dy] as Connector
+    }
+  }
+
+  let width = rowTarget
+  let height = 0
+  for (const n of placed) {
+    width = Math.max(width, n.left + 2)
+    height = Math.max(height, n.top + 2)
+  }
+  for (const c of connectors) {
+    width = Math.max(width, c[2])
+    height = Math.max(height, c[3])
+  }
+
+  return { canvas: { width, height }, nodes: placed, connectors, separate }
+}
+
+/** Hang unplaced members that have a placed parent directly below that parent. */
+function attachOrphans(
+  rtNodes: RTNode[],
+  placed: PlacedNode[],
+  connectors: Connector[],
+  separate: string[],
+): void {
+  const pos = new Map(placed.map((n) => [n.id, n]))
+  const childIds = new Map(rtNodes.map((n) => [n.id, n.children.map((c) => c.id)]))
+  const parentIds = new Map(rtNodes.map((n) => [n.id, n.parents.map((p) => p.id)]))
+
+  // Generation gap = a typical placed parent->child vertical delta (fallback 4).
+  let genGap = 0
+  for (const n of rtNodes) {
+    const pp = pos.get(n.id)
+    if (!pp) continue
+    for (const cid of childIds.get(n.id) || []) {
+      const cp = pos.get(cid)
+      if (cp && cp.top - pp.top > 0) {
+        genGap = cp.top - pp.top
+        break
+      }
+    }
+    if (genGap) break
+  }
+  if (!genGap) genGap = 4
+
+  const overlapsAny = (left: number, top: number) =>
+    placed.some((n) => left < n.left + 2 && n.left < left + 2 && top < n.top + 2 && n.top < top + 2)
+  const pushSeg = (x1: number, y1: number, x2: number, y2: number) =>
+    connectors.push([Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)] as Connector)
+
+  const pending = new Set(separate)
+  let progress = true
+  while (progress && pending.size) {
+    progress = false
+    const byParent = new Map<string, string[]>()
+    for (const id of pending) {
+      const placedParents = (parentIds.get(id) || []).filter((pid) => pos.has(pid))
+      if (placedParents.length === 0) continue
+      const parent = placedParents[0]
+      const list = byParent.get(parent) || []
+      list.push(id)
+      byParent.set(parent, list)
+    }
+    for (const [parentId, kidsRaw] of byParent) {
+      const P = pos.get(parentId)
+      if (!P) continue
+      // left-to-right by this parent's child order (already order-sorted in rtNodes)
+      const order = childIds.get(parentId) || []
+      const kids = kidsRaw.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b))
+      const groupW = kids.length * 2
+      const startLeft = Math.round(P.left + 1 - groupW / 2)
+      let top = P.top + genGap
+      for (let attempt = 0; attempt < 60; attempt++) {
+        if (!kids.some((_, i) => overlapsAny(startLeft + i * 2, top))) break
+        top += genGap
+      }
+      const centers: number[] = []
+      kids.forEach((id, i) => {
+        const node = { id, left: startLeft + i * 2, top }
+        placed.push(node)
+        pos.set(id, node)
+        pending.delete(id)
+        centers.push(node.left + 1)
+        progress = true
+      })
+      const pcx = P.left + 1
+      const pby = P.top + 2
+      if (centers.length === 1 && centers[0] === pcx) {
+        pushSeg(pcx, pby, pcx, top) // straight drop
+      } else {
+        const busY = Math.max(pby, top - Math.max(1, Math.floor(genGap / 2)))
+        if (busY > pby) pushSeg(pcx, pby, pcx, busY) // parent down to the bus (skip if zero-length)
+        pushSeg(Math.min(pcx, ...centers), busY, Math.max(pcx, ...centers), busY) // bus
+        for (const cx of centers) pushSeg(cx, busY, cx, top) // drop to each child
+      }
+    }
+  }
+  // mutate the caller's array in place to reflect what is still unattached
+  separate.length = 0
+  for (const id of pending) separate.push(id)
 }

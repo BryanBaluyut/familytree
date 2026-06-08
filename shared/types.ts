@@ -28,6 +28,13 @@ export interface Member {
   /** ISO date. Presence implies the member is deceased. */
   deathDate?: string
   notes?: string
+  /**
+   * Manual left-to-right order of this member's partners, by partner id (index 0
+   * = earliest = drawn furthest left). Stored per-person (not on the shared
+   * partnership) so each person orders their own partners independently. Partners
+   * not listed keep insertion order and sort after listed ones.
+   */
+  partnerOrder?: ID[]
 }
 
 /** A relationship between two adults. The two are interchangeable (a/b). */
@@ -46,6 +53,12 @@ export interface Parentage {
   parent: ID
   child: ID
   type: ParentType
+  /**
+   * Manual display order among a parent's children (lower = earlier/firstborn
+   * = drawn further left). Set by drag-reordering; mirrored onto the co-parent's
+   * matching parentages so both parents agree on sibling order.
+   */
+  order?: number
 }
 
 export interface Tree {

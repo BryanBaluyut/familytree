@@ -64,6 +64,37 @@ export function computeChanges(
       add('unlink', `Removed ${nameOf(r.child)} as child of ${nameOf(r.parent)}`, r.id)
   }
 
+  // Reorders: an edge persists but its manual `order` changed. Child reorders are
+  // mirrored onto the co-parent, so collapse a couple to a single log entry.
+  const partnerOf = new Map<string, Set<string>>()
+  const linkPartners = (x: string, y: string) => {
+    if (!partnerOf.has(x)) partnerOf.set(x, new Set())
+    partnerOf.get(x)!.add(y)
+  }
+  for (const p of newTree.partnerships) {
+    linkPartners(p.a, p.b)
+    linkPartners(p.b, p.a)
+  }
+
+  const reorderedParents = new Set<string>()
+  for (const r of newTree.parentages) {
+    const prev = oldRels.get(r.id)
+    if (prev && (prev.order ?? -1) !== (r.order ?? -1)) reorderedParents.add(r.parent)
+  }
+  const loggedParents = new Set<string>()
+  for (const parent of reorderedParents) {
+    if ([...loggedParents].some((l) => partnerOf.get(l)?.has(parent))) continue
+    add('edit', `Reordered children of ${nameOf(parent)}`, parent)
+    loggedParents.add(parent)
+  }
+
+  for (const m of newTree.members) {
+    const prev = oldMembers.get(m.id)
+    if (prev && (prev.partnerOrder ?? []).join(',') !== (m.partnerOrder ?? []).join(',')) {
+      add('edit', `Reordered partners of ${m.name}`, m.id)
+    }
+  }
+
   if (entries.length > BULK_THRESHOLD) {
     const added = entries.filter((e) => e.action === 'add').length
     const removed = entries.filter((e) => e.action === 'remove').length
