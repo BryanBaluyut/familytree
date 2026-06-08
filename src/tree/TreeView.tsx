@@ -56,7 +56,28 @@ export function TreeView({
   const pinchStart = useRef<{ dist: number; midX: number; midY: number; view: View } | null>(null)
 
   const rtNodes = useMemo(() => buildNodes(tree), [tree])
-  const data = useMemo(() => layoutForest(rtNodes), [rtNodes])
+  // Who is connected to anyone? People with no links don't belong in the tree
+  // canvas (a floating card looks broken) — they go into a "not linked yet" tray.
+  const linkedIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const p of tree.partnerships) {
+      s.add(p.a)
+      s.add(p.b)
+    }
+    for (const r of tree.parentages) {
+      s.add(r.parent)
+      s.add(r.child)
+    }
+    return s
+  }, [tree])
+  const data = useMemo(
+    () => layoutForest(rtNodes.filter((n) => linkedIds.has(n.id))),
+    [rtNodes, linkedIds],
+  )
+  const isolated = useMemo(
+    () => tree.members.filter((m) => !linkedIds.has(m.id)).sort((a, b) => a.name.localeCompare(b.name)),
+    [tree, linkedIds],
+  )
 
   const applyView = useCallback((next: View) => {
     viewRef.current = next
@@ -131,6 +152,8 @@ export function TreeView({
 
   useEffect(() => {
     if (!selectedId) return
+    // Unconnected people aren't on the canvas, so node is undefined and we
+    // leave the view alone (no jarring jump when adding someone).
     const node = data.nodes.find((n) => n.id === selectedId)
     if (node) centerOn(node)
   }, [selectedId, data, centerOn])
@@ -287,6 +310,11 @@ export function TreeView({
         onPointerCancel={endPointer}
         style={{ cursor: panStart.current ? 'grabbing' : 'grab' }}
       >
+        {data.nodes.length === 0 && isolated.length > 0 && (
+          <div className="tree-error muted">
+            No one is linked yet — open a person below and add a partner, parent, or child.
+          </div>
+        )}
         <div
           className="tree-canvas-inner"
           style={{
@@ -366,6 +394,18 @@ export function TreeView({
           })}
         </div>
       </div>
+
+      {isolated.length > 0 && (
+        <div className="unconnected">
+          <span className="muted">Not linked yet:</span>
+          {isolated.map((m) => (
+            <button key={m.id} className="unconnected-chip" onClick={() => onSelect(m.id)}>
+              <Avatar member={m} size={24} />
+              {m.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
