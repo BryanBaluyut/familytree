@@ -1,0 +1,32 @@
+diff --git a/node_modules/relatives-tree/lib/children/arrange.js b/node_modules/relatives-tree/lib/children/arrange.js
+index 18edf98..f47c791 100644
+--- a/node_modules/relatives-tree/lib/children/arrange.js
++++ b/node_modules/relatives-tree/lib/children/arrange.js
+@@ -5,6 +5,8 @@ import { arrangeParentsIn } from '../utils/arrangeParentsIn';
+ const arrangeNextFamily = (family, nextFamily, right) => {
+     const unit = family.parents[0];
+     const index = nextFamily.children.findIndex(sameAs(unit));
++    if (index < 0)
++        return; // PATCHED (patch-package): never index children[-1] -> no crash on any engine
+     index === 0
+         ? (nextFamily.X = getUnitX(family, unit) - nextFamily.children[index].pos)
+         : (nextFamily.children[index].pos = getUnitX(family, unit) - nextFamily.X);
+diff --git a/node_modules/relatives-tree/lib/utils/index.js b/node_modules/relatives-tree/lib/utils/index.js
+index 43f973a..974a38f 100644
+--- a/node_modules/relatives-tree/lib/utils/index.js
++++ b/node_modules/relatives-tree/lib/utils/index.js
+@@ -9,6 +9,13 @@ export const min = (arr) => Math.min.apply(null, arr);
+ export const max = (arr) => Math.max.apply(null, arr);
+ export const toMap = (items) => new Map(items.map((item) => [item.id, Object.assign({}, item)]));
+ export const hasDiffParents = (node) => node.parents.map(prop('type')).filter(unique).length > 1;
+-export const byGender = (target) => (_, b) => (b.gender !== target ? -1 : 1);
++// PATCHED (patch-package): the original `(_, b) => b.gender !== target ? -1 : 1`
++// ignores its first argument and never returns 0, so it is not a valid total-order
++// comparator. Array.prototype.sort is then implementation-defined: V8 (Chrome) and
++// SpiderMonkey (Firefox) order the couple differently, which breaks the internal
++// family invariant in Firefox and crashes calcTree at children/arrange (children[-1]).
++// This consistent comparator keeps the target-gender node first (same as V8 produced
++// for the 2-element couples this is always called on) on every engine.
++export const byGender = (target) => (a, b) => (a.gender === b.gender ? 0 : a.gender === target ? -1 : 1);
+ export const relToNode = (store) => (rel) => store.getNode(rel.id);
+ export const withRelType = (...types) => (item) => types.includes(item.type);
