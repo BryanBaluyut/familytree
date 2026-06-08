@@ -393,6 +393,7 @@ export function TreeView({
               <div
                 key={node.id}
                 className="tree-node"
+                data-member-id={node.id}
                 style={{
                   width: NODE_WIDTH,
                   height: NODE_HEIGHT,
@@ -421,11 +422,38 @@ export function TreeView({
         <div className="unconnected">
           <span className="muted">Not linked yet:</span>
           {isolated.map((m) => (
-            <button key={m.id} className="unconnected-chip" onClick={() => onSelect(m.id)}>
+            <button
+              key={m.id}
+              className="unconnected-chip"
+              data-member-id={m.id}
+              onClick={() => onSelect(m.id)}
+            >
               <Avatar member={m} size={24} />
               {m.name}
             </button>
           ))}
+        </div>
+      )}
+
+      {data.separate.length > 0 && (
+        <div className="unconnected separate-strip">
+          <span className="muted">
+            Shown separately (relatives whose link to the tree isn't drawn):
+          </span>
+          {data.separate.map((id) => {
+            const m = memberById(tree, id)
+            return m ? (
+              <button
+                key={id}
+                className="unconnected-chip"
+                data-member-id={id}
+                onClick={() => onSelect(id)}
+              >
+                <Avatar member={m} size={24} />
+                {m.name}
+              </button>
+            ) : null
+          })}
         </div>
       )}
     </div>

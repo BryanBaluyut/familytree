@@ -22,3 +22,6 @@ deno.lock
 
 # Local source material (large media / data not part of the app)
 SourceMedia/
+
+# Local testing scratch space (never pushed)
+tester/
