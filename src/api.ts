@@ -95,6 +95,18 @@ export const api = {
     return request<SnapshotInfo[]>('/api/snapshots')
   },
 
+  /** Wipe the change log + restore points. Requires the admin password. */
+  async clearHistory(password: string): Promise<void> {
+    const res = await fetch('/api/clear-history', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password }),
+      credentials: 'same-origin',
+    })
+    if (res.status === 403) throw new Error('forbidden')
+    if (!res.ok) throw new Error('Could not clear history')
+  },
+
   /** Roll the tree back to a snapshot version; returns the new saved tree. */
   async restore(version: number): Promise<Tree> {
     const { tree } = await request<{ ok: true; tree: Tree }>('/api/restore', {

@@ -85,6 +85,15 @@ export async function loadSnapshot(version: number): Promise<Tree | null> {
   return (await treeStore().get(`${SNAP_PREFIX}${version}`, { type: 'json' })) as Tree | null
 }
 
+/** Wipe the change log and all snapshots/restore points. Leaves the tree intact. */
+export async function clearHistory(): Promise<void> {
+  const store = treeStore()
+  const index = await loadSnapshotIndex()
+  await Promise.all(index.map((s) => store.delete(`${SNAP_PREFIX}${s.version}`).catch(() => {})))
+  await store.delete(SNAP_INDEX_KEY).catch(() => {})
+  await store.delete(LOG_KEY).catch(() => {})
+}
+
 /** Persist a snapshot and update the index, pruning the oldest beyond the cap. */
 export async function saveSnapshot(tree: Tree, info: SnapshotInfo): Promise<void> {
   await treeStore().setJSON(`${SNAP_PREFIX}${info.version}`, tree)

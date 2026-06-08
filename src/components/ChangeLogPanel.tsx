@@ -67,6 +67,21 @@ export function ChangeLogPanel({
     }
   }
 
+  async function clearAll() {
+    const password = window.prompt('Admin password to clear ALL history (cannot be undone):')
+    if (password == null) return
+    try {
+      await api.clearHistory(password)
+      await load()
+    } catch (e) {
+      window.alert(
+        e instanceof Error && e.message === 'forbidden'
+          ? 'Wrong admin password.'
+          : 'Could not clear history.',
+      )
+    }
+  }
+
   // Offer Restore once per version (newest entry of that version), excluding the
   // current state and versions whose snapshot is no longer kept.
   const seen = new Set<number>()
@@ -92,6 +107,13 @@ export function ChangeLogPanel({
           <div className="drawer-actions">
             <button className="btn small" onClick={() => void load()}>
               Refresh
+            </button>
+            <button
+              className="btn small danger"
+              onClick={() => void clearAll()}
+              title="Clear all history (admin password required)"
+            >
+              Clear
             </button>
             <button className="icon-btn" onClick={onClose} title="Close">
               ✕

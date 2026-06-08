@@ -27,6 +27,21 @@ function lifespan(m: Member): string {
   return ''
 }
 
+/** Clear browser caches + local/session storage, then reload to get a fresh app. */
+async function clearCacheAndRefresh() {
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys.map((k) => caches.delete(k)))
+    }
+    localStorage.clear()
+    sessionStorage.clear()
+  } catch {
+    /* ignore */
+  }
+  window.location.reload()
+}
+
 interface View {
   scale: number
   x: number
@@ -297,6 +312,13 @@ export function TreeView({
           </button>
           <button className="icon-btn" title="Zoom in" onClick={() => applyZoomCenter(1.2)}>
             +
+          </button>
+          <button
+            className="icon-btn"
+            title="Clear cache & refresh"
+            onClick={() => void clearCacheAndRefresh()}
+          >
+            ↻
           </button>
         </div>
       </div>
