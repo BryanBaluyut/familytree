@@ -1,6 +1,9 @@
-// Lay out the WHOLE tree (every branch) on one canvas. relatives-tree can only
-// lay out one connected family per call, so we split members into connected
-// components, lay each out from a progenitor, then shelf-pack the clusters.
+// Lay out the WHOLE tree (every branch) on one canvas. relatives-tree lays out
+// one family from a chosen root (its ancestors, descendants and spouses — but
+// NOT a spouse's separate ancestors). So we repeatedly root on a real
+// progenitor and peel off the family it covers, until everyone is placed, then
+// shelf-pack the clusters. This keeps generations the right way up (ancestors
+// on top) regardless of the order people were added.
 
 import calcTree from 'relatives-tree'
 import type { Connector, Node } from 'relatives-tree/lib/types'
@@ -18,6 +21,12 @@ export interface ForestLayout {
   connectors: Connector[]
 }
 
+interface Cluster {
+  canvas: { width: number; height: number }
+  nodes: PlacedNode[]
+  connectors: Connector[]
+}
+
 const GAP = 3 // half-units of space between separate family clusters
 
 export function layoutForest(rtNodes: RTNode[]): ForestLayout {
@@ -25,61 +34,57 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
 
   const byId = new Map(rtNodes.map((n) => [n.id, n]))
 
-  // --- union-find over spouse + parent/child edges => connected components ---
-  const parent = new Map<string, string>()
-  rtNodes.forEach((n) => parent.set(n.id, n.id))
-  const find = (x: string): string => {
-    let root = x
-    while (parent.get(root) !== root) root = parent.get(root) as string
-    while (parent.get(x) !== root) {
-      const next = parent.get(x) as string
-      parent.set(x, root)
-      x = next
+  // Choose the best root among the not-yet-placed people: a progenitor (no
+  // parents) who has children is ideal — rooting there keeps ancestors on top
+  // and reaches the whole descending family. Fall back gracefully.
+  const pickRoot = (remaining: Set<string>): string => {
+    let withChildren: string | undefined
+    let noParents: string | undefined
+    let any: string | undefined
+    for (const id of remaining) {
+      const n = byId.get(id)
+      if (!n) continue
+      if (any === undefined) any = id
+      const isProgenitor = n.parents.length === 0
+      const hasChildren = n.children.length > 0
+      if (isProgenitor && hasChildren) return id
+      if (hasChildren && withChildren === undefined) withChildren = id
+      if (isProgenitor && noParents === undefined) noParents = id
     }
-    return root
-  }
-  const union = (a: string, b: string) => {
-    if (!byId.has(a) || !byId.has(b)) return
-    const ra = find(a)
-    const rb = find(b)
-    if (ra !== rb) parent.set(ra, rb)
-  }
-  for (const n of rtNodes) {
-    for (const s of n.spouses) union(n.id, s.id)
-    for (const c of n.children) union(n.id, c.id)
-    for (const p of n.parents) union(n.id, p.id)
-  }
-  const groups = new Map<string, string[]>()
-  for (const n of rtNodes) {
-    const root = find(n.id)
-    const g = groups.get(root)
-    if (g) g.push(n.id)
-    else groups.set(root, [n.id])
+    return withChildren ?? noParents ?? any ?? (remaining.values().next().value as string)
   }
 
-  const layoutOne = (ids: string[]): ForestLayout => {
-    const root = ids.find((id) => (byId.get(id)?.parents.length ?? 0) === 0) ?? ids[0]
+  const clusters: Cluster[] = []
+  const remaining = new Set(rtNodes.map((n) => n.id))
+  let guard = 0
+  while (remaining.size > 0 && guard++ < rtNodes.length + 5) {
+    const root = pickRoot(remaining)
+    let cluster: Cluster
     try {
       const rel = calcTree(rtNodes as unknown as readonly Node[], { rootId: root })
-      return {
+      cluster = {
         canvas: rel.canvas,
         nodes: rel.nodes.map((n) => ({ id: n.id, left: n.left, top: n.top })),
         connectors: rel.connectors.map((c) => [c[0], c[1], c[2], c[3]] as Connector),
       }
     } catch (e) {
-      console.error('calcTree failed for a component', e)
-      return {
-        canvas: { width: Math.max(2, ids.length * 2), height: 2 },
-        nodes: ids.map((id, i) => ({ id, left: i * 2, top: 0 })),
-        connectors: [],
-      }
+      console.error('calcTree failed', e)
+      cluster = { canvas: { width: 2, height: 2 }, nodes: [{ id: root, left: 0, top: 0 }], connectors: [] }
     }
+    const fresh = cluster.nodes.filter((n) => remaining.has(n.id))
+    if (fresh.length === 0) {
+      // Couldn't place the root via calcTree — drop it in as a singleton.
+      remaining.delete(root)
+      clusters.push({ canvas: { width: 2, height: 2 }, nodes: [{ id: root, left: 0, top: 0 }], connectors: [] })
+      continue
+    }
+    for (const n of cluster.nodes) remaining.delete(n.id)
+    clusters.push(cluster)
   }
 
-  const comps = [...groups.values()].map(layoutOne)
-  comps.sort((a, b) => b.nodes.length - a.nodes.length) // biggest cluster first
+  clusters.sort((a, b) => b.nodes.length - a.nodes.length) // biggest family first
 
-  const rowTarget = Math.max(1, ...comps.map((c) => c.canvas.width))
+  const rowTarget = Math.max(1, ...clusters.map((c) => c.canvas.width))
   const placed: PlacedNode[] = []
   const connectors: Connector[] = []
   const seen = new Set<string>()
@@ -88,7 +93,7 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
   let rowH = 0
   let maxRight = 0
 
-  for (const c of comps) {
+  for (const c of clusters) {
     if (x > 0 && x + c.canvas.width > rowTarget + 0.001) {
       y += rowH + GAP
       x = 0
@@ -107,11 +112,14 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
     maxRight = Math.max(maxRight, x - GAP)
   }
 
-  // Safety net: place any member that somehow wasn't laid out, in a final row.
+  // Final safety net for anyone still unplaced.
   const tail = rtNodes.filter((n) => !seen.has(n.id))
   if (tail.length) {
     y += rowH + GAP
-    tail.forEach((n, i) => placed.push({ id: n.id, left: i * 2, top: y }))
+    tail.forEach((n, i) => {
+      placed.push({ id: n.id, left: i * 2, top: y })
+      seen.add(n.id)
+    })
     rowH = 2
     maxRight = Math.max(maxRight, tail.length * 2)
   }
