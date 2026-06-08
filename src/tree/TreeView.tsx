@@ -294,13 +294,7 @@ export function TreeView({
     <div className="tree-wrap">
       <div className="tree-toolbar">
         <div className="tree-legend">
-          <span className="legend-item">
-            <span className="legend-swatch married" /> partner
-          </span>
-          <span className="legend-item">
-            <span className="legend-swatch divorced" /> divorced
-          </span>
-          <span className="legend-hint muted">· drag to pan, pinch / scroll to zoom</span>
+          <span className="legend-hint muted">drag to pan, pinch / scroll to zoom</span>
         </div>
 
         <div className="zoom-controls">
@@ -365,8 +359,6 @@ export function TreeView({
               const off = Math.min(NODE_WIDTH / 2 - CARD_PAD, len / 2 - 6)
               const ux = dx / len
               const uy = dy / len
-              const mx = (ax + bx) / 2
-              const my = (ay + by) / 2
               return (
                 <g key={p.id}>
                   <line
@@ -376,10 +368,6 @@ export function TreeView({
                     x2={bx - ux * off}
                     y2={by - uy * off}
                   />
-                  <rect className="divorce-pill" x={mx - 15} y={my - 9} width={30} height={18} rx={9} />
-                  <text className="divorce-pill-text" x={mx} y={my} textAnchor="middle" dominantBaseline="central">
-                    {p.status === 'divorced' ? 'ex' : 'sep'}
-                  </text>
                 </g>
               )
             })}
