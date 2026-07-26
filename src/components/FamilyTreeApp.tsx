@@ -13,10 +13,12 @@ export function FamilyTreeApp({
   identity,
   onChangeIdentity,
   onUnauthorized,
+  onPresent,
 }: {
   identity: string
   onChangeIdentity: () => void
   onUnauthorized: () => void
+  onPresent: () => void
 }) {
   const store = useTree(onUnauthorized)
   const [selectedId, setSelectedId] = useState<ID | null>(null)
@@ -126,6 +128,9 @@ export function FamilyTreeApp({
             </button>
           </div>
           <SaveIndicator status={store.saveStatus} />
+          <button className="btn ghost small" onClick={onPresent} title="Full-screen slideshow">
+            Present
+          </button>
           <button className="btn ghost small" onClick={() => setShowHistory(true)}>
             History
           </button>
