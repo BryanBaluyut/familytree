@@ -6,7 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ID, Member, PartnerStatus, Tree } from '@shared/types'
 import { emptyTree, normalizeTree } from '@shared/types'
-import { api, AuthError } from '../api'
+import { api, AuthError, ConflictError } from '../api'
+import { mergeTrees } from '../lib/merge'
 import {
   addParentage,
   addPartnership,
@@ -63,6 +64,8 @@ export function useTree(onUnauthorized: () => void): TreeStore {
 
   // Refs mirror the latest values so callbacks never read stale state.
   const treeRef = useRef<Tree | null>(null)
+  // Last server-acknowledged state: the merge base when a save conflicts.
+  const baseRef = useRef<Tree | null>(null)
   const dirty = useRef(false)
   // True once the user has made any local edit; afterwards a late-resolving
   // reload (React StrictMode's second mount, a slow GET) must not overwrite it.
@@ -82,6 +85,7 @@ export function useTree(onUnauthorized: () => void): TreeStore {
       const loaded = await api.getTree()
       if (edited.current) return // never clobber local edits with a stale load
       treeRef.current = loaded
+      baseRef.current = loaded
       setTree(loaded)
       setLoadError(null)
     } catch (e) {
@@ -96,10 +100,43 @@ export function useTree(onUnauthorized: () => void): TreeStore {
     void reload()
   }, [reload])
 
+  // When the tab regains focus and nothing is unsaved here, quietly adopt any
+  // newer tree another editor saved in the meantime, so open tabs don't drift
+  // (and don't run their next edit into a conflict).
+  useEffect(() => {
+    let checking = false
+    const check = async () => {
+      if (checking || document.visibilityState === 'hidden') return
+      if (dirty.current || saving.current) return
+      checking = true
+      try {
+        const latest = await api.getTree()
+        const current = treeRef.current
+        // re-check: an edit may have started while the request was in flight
+        if (!dirty.current && !saving.current && current && latest.version > current.version) {
+          baseRef.current = latest
+          treeRef.current = latest
+          setTree(latest)
+        }
+      } catch {
+        /* offline or logged out — the next save/load surfaces it */
+      } finally {
+        checking = false
+      }
+    }
+    window.addEventListener('focus', check)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      window.removeEventListener('focus', check)
+      document.removeEventListener('visibilitychange', check)
+    }
+  }, [])
+
   // Persist the latest snapshot; serialized so saves never overlap.
   const flush = useCallback(async () => {
     if (saving.current) return
     saving.current = true
+    let conflictRetries = 0
     try {
       while (dirty.current && treeRef.current) {
         dirty.current = false
@@ -107,6 +144,7 @@ export function useTree(onUnauthorized: () => void): TreeStore {
         setSaveStatus('saving')
         try {
           const saved = await api.saveTree(snapshot)
+          baseRef.current = saved
           if (!dirty.current) {
             const merged: Tree = { ...snapshot, version: saved.version, updatedAt: saved.updatedAt }
             treeRef.current = merged
@@ -116,6 +154,17 @@ export function useTree(onUnauthorized: () => void): TreeStore {
           if (e instanceof AuthError) {
             onUnauth.current()
             return
+          }
+          if (e instanceof ConflictError && conflictRetries < 3) {
+            // Someone else saved first. Rebase our edits onto their tree and
+            // retry — their work and ours both survive.
+            conflictRetries++
+            const merged = mergeTrees(baseRef.current ?? snapshot, snapshot, e.serverTree)
+            baseRef.current = e.serverTree
+            treeRef.current = merged
+            setTree(merged)
+            dirty.current = true
+            continue
           }
           setSaveStatus('error')
           return
@@ -194,6 +243,7 @@ export function useTree(onUnauthorized: () => void): TreeStore {
   const restore = useCallback(
     async (version: number) => {
       const restored = await api.restore(version) // already saved server-side
+      baseRef.current = restored
       if (treeRef.current) {
         undoStack.current.push(treeRef.current)
         if (undoStack.current.length > HISTORY_CAP) undoStack.current.shift()

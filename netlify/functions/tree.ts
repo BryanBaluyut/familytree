@@ -30,6 +30,14 @@ export default async (req: Request): Promise<Response> => {
 
     // Server owns the version number (monotonic) and the save timestamp.
     const current = await loadTree()
+
+    // Optimistic concurrency: the client sends the version its edits are based
+    // on. If someone else saved since, reject with the current tree so the
+    // client can merge and retry — never silently overwrite their work.
+    if (typeof body.version !== 'number' || body.version !== current.version) {
+      return json({ error: 'conflict', tree: current }, 409)
+    }
+
     const next: Tree = {
       members: body.members,
       partnerships: body.partnerships,

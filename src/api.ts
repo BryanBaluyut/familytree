@@ -12,6 +12,15 @@ export class AuthError extends Error {
   }
 }
 
+/** Thrown when a save is based on a stale version; carries the server's tree
+ * so the caller can merge local edits onto it and retry. */
+export class ConflictError extends Error {
+  constructor(readonly serverTree: Tree) {
+    super('Tree was changed by someone else')
+    this.name = 'ConflictError'
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { credentials: 'same-origin', ...init })
   if (res.status === 401) throw new AuthError()
@@ -62,11 +71,22 @@ export const api = {
   },
 
   async saveTree(tree: Tree): Promise<Tree> {
-    const { tree: saved } = await request<{ ok: true; tree: Tree }>('/api/tree', {
+    const res = await fetch('/api/tree', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(tree),
+      credentials: 'same-origin',
     })
+    if (res.status === 401) throw new AuthError()
+    if (res.status === 409) {
+      const { tree: server } = (await res.json()) as { tree: Tree }
+      throw new ConflictError(normalizeTree(server))
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(text || `${res.status} ${res.statusText}`)
+    }
+    const { tree: saved } = (await res.json()) as { ok: true; tree: Tree }
     return saved
   },
 
