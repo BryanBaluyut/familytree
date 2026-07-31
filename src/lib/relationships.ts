@@ -30,10 +30,20 @@ export const partnersOf = (tree: Tree, id: ID): PartnerLink[] => {
     const i = order.indexOf(pid)
     return i === -1 ? ORDER_LAST : i
   }
+  // Default chronology when partners aren't manually ordered: a separated
+  // partnership almost always predates a current one, so exes sort first
+  // (earliest = listed/drawn furthest left, matching the tree canvas, which
+  // always places separated partners left of the person). Manual partnerOrder
+  // still wins over this heuristic.
+  const statusRank = (p: Partnership) => (p.status === 'separated' ? 0 : 1)
   return tree.partnerships
     .filter((p) => p.a === id || p.b === id)
     .map((p) => ({ partnership: p, otherId: p.a === id ? p.b : p.a }))
-    .sort((x, y) => rankOf(x.otherId) - rankOf(y.otherId))
+    .sort(
+      (x, y) =>
+        rankOf(x.otherId) - rankOf(y.otherId) ||
+        statusRank(x.partnership) - statusRank(y.partnership),
+    )
 }
 
 export interface ParentLink {

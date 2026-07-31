@@ -15,7 +15,7 @@
 
 import calcTree from 'relatives-tree'
 import type { Connector, Node } from 'relatives-tree/lib/types'
-import type { RTNode, RTRelation } from './buildNodes'
+import { isGhostId, type RTNode, type RTRelation } from './buildNodes'
 
 export interface PlacedNode {
   id: string
@@ -166,6 +166,20 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
   // member that has a *placed* parent directly below that parent and draw the
   // connector ourselves. Handles chains (an orphan's own children) by iterating.
   attachOrphans(rtNodes, placed, connectors, (separate = [...separate]))
+
+  // Ghost spouses (see buildNodes) have served their layout purpose — remove
+  // their card and the spouse bar ending at their center. The bar is the only
+  // connector that touches a ghost (ghosts have no parents or children).
+  for (const g of placed.filter((n) => isGhostId(n.id))) {
+    const gcx = g.left + 1
+    const gcy = g.top + 1
+    for (let i = connectors.length - 1; i >= 0; i--) {
+      const c = connectors[i]
+      if (c[1] === gcy && c[3] === gcy && (c[0] === gcx || c[2] === gcx)) connectors.splice(i, 1)
+    }
+  }
+  for (let i = placed.length - 1; i >= 0; i--) if (isGhostId(placed[i].id)) placed.splice(i, 1)
+  separate = separate.filter((id) => !isGhostId(id))
 
   // Attachment (and centering under an edge parent) can produce negative offsets;
   // shift everything back into the >= 0 canvas space.

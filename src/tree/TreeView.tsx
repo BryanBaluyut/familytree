@@ -4,7 +4,7 @@ import type { Connector } from 'relatives-tree/lib/types'
 import type { ID, Tree } from '@shared/types'
 import { memberById } from '../lib/relationships'
 import { Avatar } from '../components/Avatar'
-import { buildNodes } from './buildNodes'
+import { buildNodes, isGhostId } from './buildNodes'
 import { layoutForest, memberIdOf, type PlacedNode } from './layout'
 
 const NODE_WIDTH = 170
@@ -77,7 +77,9 @@ export function TreeView({
     return s
   }, [tree])
   const data = useMemo(
-    () => layoutForest(rtNodes.filter((n) => linkedIds.has(n.id))),
+    // Ghost spouses aren't tree members, so they aren't in linkedIds — keep
+    // them anyway; layoutForest needs them and strips them from its result.
+    () => layoutForest(rtNodes.filter((n) => linkedIds.has(n.id) || isGhostId(n.id))),
     [rtNodes, linkedIds],
   )
   const isolated = useMemo(
