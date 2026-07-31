@@ -847,20 +847,6 @@ textarea.input {
   border-radius: 1px;
 }
 
-.divorce-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  pointer-events: none;
-  overflow: visible;
-}
-
-.divorce-line {
-  stroke: #c98a00;
-  stroke-width: 2;
-  stroke-dasharray: 5 4;
-}
-
 .tree-node {
   position: absolute;
   padding: 10px;

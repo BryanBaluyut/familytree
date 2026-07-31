@@ -4,14 +4,13 @@ import type { Connector } from 'relatives-tree/lib/types'
 import type { ID, Tree } from '@shared/types'
 import { memberById } from '../lib/relationships'
 import { Avatar } from '../components/Avatar'
-import { buildNodes, isGhostId } from './buildNodes'
+import { buildNodes } from './buildNodes'
 import { layoutForest, memberIdOf, type PlacedNode } from './layout'
 
 const NODE_WIDTH = 170
 const NODE_HEIGHT = 140
 const W = NODE_WIDTH / 2
 const H = NODE_HEIGHT / 2
-const CARD_PAD = 10
 const MIN_SCALE = 0.15
 const MAX_SCALE = 2.5
 const REFIT_JUMP = 5 // re-fit the view when the member count changes by at least this
@@ -77,9 +76,7 @@ export function TreeView({
     return s
   }, [tree])
   const data = useMemo(
-    // Ghost spouses aren't tree members, so they aren't in linkedIds — keep
-    // them anyway; layoutForest needs them and strips them from its result.
-    () => layoutForest(rtNodes.filter((n) => linkedIds.has(n.id) || isGhostId(n.id))),
+    () => layoutForest(rtNodes.filter((n) => linkedIds.has(n.id))),
     [rtNodes, linkedIds],
   )
   const isolated = useMemo(
@@ -290,7 +287,6 @@ export function TreeView({
     )
   }
 
-  const dissolved = tree.partnerships.filter((p) => p.status === 'separated')
   const posById = new Map<string, PlacedNode>(data.nodes.map((n) => [n.id, n]))
   const canvasW = data.canvas.width * W
   const canvasH = data.canvas.height * H
@@ -361,35 +357,6 @@ export function TreeView({
           {data.connectors.map((c, i) => (
             <ConnectorLine key={i} c={c} />
           ))}
-
-          <svg className="divorce-layer" width={canvasW} height={canvasH}>
-            {dissolved.map((p) => {
-              const a = posById.get(p.a)
-              const b = posById.get(p.b)
-              if (!a || !b) return null
-              const ax = a.left * W + NODE_WIDTH / 2
-              const ay = a.top * H + NODE_HEIGHT / 2
-              const bx = b.left * W + NODE_WIDTH / 2
-              const by = b.top * H + NODE_HEIGHT / 2
-              const dx = bx - ax
-              const dy = by - ay
-              const len = Math.hypot(dx, dy) || 1
-              const off = Math.min(NODE_WIDTH / 2 - CARD_PAD, len / 2 - 6)
-              const ux = dx / len
-              const uy = dy / len
-              return (
-                <g key={p.id}>
-                  <line
-                    className="divorce-line"
-                    x1={ax + ux * off}
-                    y1={ay + uy * off}
-                    x2={bx - ux * off}
-                    y2={by - uy * off}
-                  />
-                </g>
-              )
-            })}
-          </svg>
 
           {data.nodes.map((node) => {
             const memberId = memberIdOf(node.id)

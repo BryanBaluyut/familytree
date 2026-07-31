@@ -24,36 +24,25 @@ export interface RTNode {
   spouses: RTRelation[]
 }
 
-/**
- * Phantom "ghost spouse" nodes. relatives-tree flanks a multi-partner person
- * (partners on both sides). To draw ALL partners on ONE side — earliest to
- * latest, left to right — every real partnership of such a person is passed as
- * 'divorced' (the type the engine stacks LEFT of the person in array order)
- * and an invisible ghost 'married' spouse is appended to claim the right-hand
- * slot, which forces the stack. layoutForest strips ghost cards and their
- * connector from the result; ghosts never reach the screen.
- */
-export const GHOST_MARK = '__ghost'
-export const isGhostId = (id: string): boolean => id.endsWith(GHOST_MARK)
-
 // Our data model has no parent-link types and no gender; relatives-tree wants
 // both, so every parent/child link is 'blood' and every node 'male' (gender
-// only influences which side a spouse lands on, which the ghost-spouse trick
+// only influences which side a spouse lands on, which our relatives-tree patch
 // and partner order already control).
 export function buildNodes(tree: Tree): RTNode[] {
-  // Members with 2+ partners get the one-sided partner stack (see GHOST_MARK).
+  // A multi-partner person's partnerships are ALL passed as 'divorced': that
+  // stops the engine electing one "real" spouse by marriage and lets our
+  // relatives-tree patch (see patches/) draw every partner to the RIGHT of the
+  // person in input order — earliest first, exactly like a normal couple, just
+  // continued. Both endpoints of a partnership must agree on the type.
   const partnerCount = new Map<ID, number>()
   for (const p of tree.partnerships) {
     partnerCount.set(p.a, (partnerCount.get(p.a) ?? 0) + 1)
     partnerCount.set(p.b, (partnerCount.get(p.b) ?? 0) + 1)
   }
   const multi = (id: ID) => (partnerCount.get(id) ?? 0) >= 2
-  // A partnership renders as the stacking type when it is dissolved OR either
-  // endpoint is multi-partner (both endpoints must agree on the type).
-  const rtSpouseType = (a: ID, b: ID, status: string): RTRelType =>
-    status === 'separated' || multi(a) || multi(b) ? 'divorced' : 'married'
+  const rtSpouseType = (a: ID, b: ID): RTRelType => (multi(a) || multi(b) ? 'divorced' : 'married')
 
-  const nodes: RTNode[] = tree.members.map((m) => ({
+  return tree.members.map((m) => ({
     id: m.id,
     gender: 'male' as const,
     parents: parentsOf(tree, m.id).map(({ parentId }) => ({
@@ -64,32 +53,13 @@ export function buildNodes(tree: Tree): RTNode[] {
       id: childId,
       type: 'blood' as const,
     })),
-    // partnersOf is ordered earliest-first, which is exactly the left-to-right
-    // order the engine gives 'divorced'-typed spouses (array[0] leftmost). The
-    // ghost spouse (appended below) keeps a multi-partner person to the RIGHT
-    // of the stack, so their relationships read chronologically left -> right.
+    // partnersOf is ordered earliest-first = the left-to-right drawing order.
     spouses: partnersOf(tree, m.id).map(({ otherId, partnership }) => ({
       id: otherId,
-      type: rtSpouseType(partnership.a, partnership.b, partnership.status),
+      type: rtSpouseType(partnership.a, partnership.b),
     })),
     siblings: siblingsOf(tree, m.id),
   }))
-
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  for (const m of tree.members) {
-    if (!multi(m.id)) continue
-    const ghostId = `${m.id}${GHOST_MARK}`
-    byId.get(m.id)?.spouses.push({ id: ghostId, type: 'married' })
-    nodes.push({
-      id: ghostId,
-      gender: 'male',
-      parents: [],
-      children: [],
-      siblings: [],
-      spouses: [{ id: m.id, type: 'married' }],
-    })
-  }
-  return nodes
 }
 
 /** Siblings = members sharing at least one parent. Full if parent sets match. */

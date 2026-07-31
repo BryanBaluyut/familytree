@@ -11,6 +11,35 @@ index 18edf98..f47c791 100644
      index === 0
          ? (nextFamily.X = getUnitX(family, unit) - nextFamily.children[index].pos)
          : (nextFamily.children[index].pos = getUnitX(family, unit) - nextFamily.X);
+diff --git a/node_modules/relatives-tree/lib/utils/getSpouseNodesFunc.js b/node_modules/relatives-tree/lib/utils/getSpouseNodesFunc.js
+index a97bc64..23f1e03 100644
+--- a/node_modules/relatives-tree/lib/utils/getSpouseNodesFunc.js
++++ b/node_modules/relatives-tree/lib/utils/getSpouseNodesFunc.js
+@@ -8,7 +8,9 @@ const getSpouse = (store, spouses) => {
+     if (married)
+         return toNode(married);
+     if (spouses.length >= 1)
+-        return spouses.map(toNode).sort(inDescOrderOfChildCount)[0];
++        // PATCHED (patch-package): keep INPUT order (chronological, earliest first)
++        // instead of child count, so the in-couple slot goes to the earliest partner.
++        return spouses.map(toNode)[0];
+     return;
+ };
+ const getCoupleNodes = (store, target) => {
+@@ -26,8 +28,11 @@ export const getSpouseNodesFunc = (store) => {
+         const result = { left: [], middle, right: [] };
+         if (middle.length === NODES_IN_COUPLE) {
+             const [first, second] = middle;
+-            result.left = first.spouses.filter(excludeRel(second)).map(toNode);
+-            result.right = second.spouses.filter(excludeRel(first)).map(toNode);
++            // PATCHED (patch-package): a person's additional partners are drawn to the
++            // RIGHT of the couple (in input order = chronological), not the left, so all
++            // partners sit on the right-hand side of the person like a normal spouse.
++            result.left = second.spouses.filter(excludeRel(first)).map(toNode);
++            result.right = first.spouses.filter(excludeRel(second)).map(toNode);
+         }
+         return result;
+     };
 diff --git a/node_modules/relatives-tree/lib/utils/index.js b/node_modules/relatives-tree/lib/utils/index.js
 index 43f973a..974a38f 100644
 --- a/node_modules/relatives-tree/lib/utils/index.js
