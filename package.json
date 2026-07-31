@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:functions": "tsc --noEmit -p netlify/functions/tsconfig.json",
     "netlify:dev": "netlify dev",
-    "postinstall": "patch-package"
+    "postinstall": "sh scripts/postinstall.sh"
   },
   "dependencies": {
     "@netlify/blobs": "^8.1.0",
