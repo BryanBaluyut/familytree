@@ -11,7 +11,7 @@
 
 import calcTree from 'relatives-tree'
 import type { Connector, Node } from 'relatives-tree/lib/types'
-import type { RTNode } from './buildNodes'
+import type { RTNode, RTRelation } from './buildNodes'
 
 export interface PlacedNode {
   id: string
@@ -146,6 +146,13 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
   // connector ourselves. Handles chains (an orphan's own children) by iterating.
   attachOrphans(rtNodes, placed, connectors, (separate = [...separate]))
 
+  // Attach a placed member's unplaced *ancestors* (and their whole birth family).
+  // relatives-tree won't render a married-in spouse's own ancestry, so an in-law's
+  // parents/grandparents/etc. all land in `separate`. attachOrphans only reaches
+  // downward (children under a placed parent); this pass reaches upward — it lays
+  // each leftover family fragment out as its own sub-tree and links it to the tree.
+  attachAncestralClusters(rtNodes, placed, connectors, separate)
+
   // Attachment (and centering under an edge parent) can produce negative offsets;
   // shift everything back into the >= 0 canvas space.
   let minLeft = 0
@@ -267,4 +274,159 @@ function attachOrphans(
   // mutate the caller's array in place to reflect what is still unattached
   separate.length = 0
   for (const id of pending) separate.push(id)
+}
+
+/**
+ * Draw the leftovers that hang *above* a placed member — e.g. a married-in
+ * spouse's parents and their entire birth family, which relatives-tree refuses to
+ * render from the main root. Each connected fragment of leftovers is laid out on
+ * its own (via relatives-tree, including the placed relatives it touches so its
+ * orientation is correct, but with every relation pointing outside the fragment
+ * pruned so the whole main tree isn't pulled back in), parked in clear space just
+ * above the main tree (which guarantees no card overlaps another), and linked to
+ * each anchor with an orthogonal connector. Pure layout — never touches the data.
+ */
+function attachAncestralClusters(
+  rtNodes: RTNode[],
+  placed: PlacedNode[],
+  connectors: Connector[],
+  separate: string[],
+): void {
+  if (separate.length === 0) return
+  const pos = new Map(placed.map((n) => [n.id, n]))
+  const nodeById = new Map(rtNodes.map((n) => [n.id, n]))
+  const sepSet = new Set(separate)
+
+  const relIds = (n: RTNode): string[] =>
+    [...n.parents, ...n.children, ...n.spouses, ...n.siblings].map((r) => r.id)
+
+  // Connected components within the leftover set (each is one family fragment).
+  const clusters: string[][] = []
+  const seen = new Set<string>()
+  for (const start of separate) {
+    if (seen.has(start)) continue
+    const comp: string[] = []
+    const stack = [start]
+    seen.add(start)
+    while (stack.length) {
+      const id = stack.pop() as string
+      comp.push(id)
+      const n = nodeById.get(id)
+      if (!n) continue
+      for (const nb of relIds(n)) {
+        if (sepSet.has(nb) && !seen.has(nb)) {
+          seen.add(nb)
+          stack.push(nb)
+        }
+      }
+    }
+    clusters.push(comp)
+  }
+
+  const pushSeg = (x1: number, y1: number, x2: number, y2: number) =>
+    connectors.push(
+      [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)] as Connector,
+    )
+
+  const attached = new Set<string>()
+  for (const comp of clusters) {
+    try {
+      if (placeCluster(comp)) for (const id of comp) attached.add(id)
+    } catch (e) {
+      console.error('attachAncestralClusters failed for a cluster', e)
+    }
+  }
+
+  // Anything we managed to draw leaves the "shown separately" list.
+  if (attached.size) {
+    const remaining = separate.filter((id) => !attached.has(id))
+    separate.length = 0
+    for (const id of remaining) separate.push(id)
+  }
+
+  function placeCluster(comp: string[]): boolean {
+    // Placed relatives this fragment touches — the anchors we hang it on.
+    const anchors = new Set<string>()
+    for (const id of comp) {
+      const n = nodeById.get(id)
+      if (!n) continue
+      for (const nb of relIds(n)) if (pos.has(nb)) anchors.add(nb)
+    }
+    if (anchors.size === 0) return false // nothing placed to attach to
+
+    // Lay the fragment out on its own, INCLUDING the anchors so relatives-tree
+    // orients it correctly; prune every relation pointing outside this scope so
+    // the anchors act as leaves (we don't want to drag the whole main tree in).
+    const scope = new Set<string>([...comp, ...anchors])
+    const keep = (rels: RTRelation[]) => rels.filter((r) => scope.has(r.id))
+    const sub: RTNode[] = [...scope].map((id) => {
+      const n = nodeById.get(id) as RTNode
+      return {
+        id: n.id,
+        gender: n.gender,
+        parents: keep(n.parents),
+        children: keep(n.children),
+        siblings: keep(n.siblings),
+        spouses: keep(n.spouses),
+      }
+    })
+
+    // Root at a fragment progenitor (no parents in scope, has children).
+    const inScope = (rels: RTRelation[]) => rels.filter((r) => scope.has(r.id)).length
+    const root =
+      comp.find((id) => {
+        const n = nodeById.get(id) as RTNode
+        return inScope(n.parents) === 0 && inScope(n.children) > 0
+      }) ??
+      comp.find((id) => inScope((nodeById.get(id) as RTNode).parents) === 0) ??
+      comp[0]
+
+    const rel = calcTree(sub as unknown as readonly Node[], { rootId: root })
+    const local = new Map(rel.nodes.map((n) => [n.id, { left: n.left, top: n.top }]))
+
+    // Primary anchor = one that got placed in the sub-layout; align the fragment's
+    // horizontal position on it so its bridge connector is a straight drop.
+    const primary = [...anchors].find((a) => local.has(a))
+    if (!primary) return false
+    const aLocal = local.get(primary) as { left: number; top: number }
+    const aReal = pos.get(primary) as PlacedNode
+    const dx = aReal.left - aLocal.left
+
+    // Lift the whole sub-layout into clear space just above the main tree.
+    let mainTop = 0
+    for (const n of placed) mainTop = Math.min(mainTop, n.top)
+    let maxLocalTop = 0
+    for (const n of rel.nodes) maxLocalTop = Math.max(maxLocalTop, n.top)
+    const dy = mainTop - GAP - 2 - maxLocalTop
+
+    // Place the fragment's members (skip anchors — already on the canvas).
+    let placedAny = false
+    for (const id of comp) {
+      const lp = local.get(id)
+      if (!lp) continue
+      const node = { id, left: lp.left + dx, top: lp.top + dy }
+      placed.push(node)
+      pos.set(id, node)
+      placedAny = true
+    }
+    if (!placedAny) return false
+
+    // Redraw the fragment's internal connectors at the new offset.
+    for (const c of rel.connectors) pushSeg(c[0] + dx, c[1] + dy, c[2] + dx, c[3] + dy)
+
+    // Bridge each anchor's spot in the sub-layout down to its real card, so the
+    // parked fragment visibly connects to the tree.
+    for (const a of anchors) {
+      const la = local.get(a)
+      if (!la) continue
+      const real = pos.get(a) as PlacedNode
+      const phantomX = la.left + dx + 1
+      const phantomTop = la.top + dy
+      const realX = real.left + 1
+      const realTop = real.top
+      pushSeg(phantomX, phantomTop, phantomX, realTop) // down at the anchor's column
+      if (phantomX !== realX) pushSeg(phantomX, realTop, realX, realTop) // across to the card
+    }
+    return true
+  }
 }
