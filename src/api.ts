@@ -2,6 +2,7 @@
 // cookie (same-origin) so the shared-password gate protects everything.
 
 import type { ChangeLogEntry, SnapshotInfo, Tree } from '@shared/types'
+import { normalizeTree } from '@shared/types'
 
 /** Thrown when the server rejects a request for lack of a valid session. */
 export class AuthError extends Error {
@@ -55,8 +56,9 @@ export const api = {
     await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' })
   },
 
-  getTree(): Promise<Tree> {
-    return request<Tree>('/api/tree')
+  /** Load the tree, upgrading any legacy fields/statuses to the current schema. */
+  async getTree(): Promise<Tree> {
+    return normalizeTree(await request<Tree>('/api/tree'))
   },
 
   async saveTree(tree: Tree): Promise<Tree> {
@@ -107,13 +109,14 @@ export const api = {
     if (!res.ok) throw new Error('Could not clear history')
   },
 
-  /** Roll the tree back to a snapshot version; returns the new saved tree. */
+  /** Roll the tree back to a snapshot version; returns the new saved tree.
+   * Normalized because old snapshots may predate the simplified schema. */
   async restore(version: number): Promise<Tree> {
     const { tree } = await request<{ ok: true; tree: Tree }>('/api/restore', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ version }),
     })
-    return tree
+    return normalizeTree(tree)
   },
 }

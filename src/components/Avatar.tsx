@@ -37,10 +37,7 @@ export function Avatar({
     }
   }
 
-  const className =
-    'avatar' +
-    (editable ? ' editable' : '') +
-    (member.deathDate ? ' deceased' : '')
+  const className = 'avatar' + (editable ? ' editable' : '')
 
   return (
     <div

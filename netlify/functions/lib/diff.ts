@@ -54,10 +54,8 @@ export function computeChanges(
   const oldRels = new Map(oldTree.parentages.map((r) => [r.id, r]))
   const newRels = new Map(newTree.parentages.map((r) => [r.id, r]))
   for (const r of newTree.parentages) {
-    const prev = oldRels.get(r.id)
-    if (!prev) add('link', `Added ${nameOf(r.child)} as child of ${nameOf(r.parent)}`, r.id)
-    else if (prev.type !== r.type)
-      add('relink', `Changed ${nameOf(r.child)}/${nameOf(r.parent)} link to ${r.type}`, r.id)
+    if (!oldRels.has(r.id))
+      add('link', `Added ${nameOf(r.child)} as child of ${nameOf(r.parent)}`, r.id)
   }
   for (const r of oldTree.parentages) {
     if (!newRels.has(r.id))
@@ -113,11 +111,5 @@ function memberChange(prev: Member, next: Member): string | null {
   if (prev.name !== next.name) return `Renamed "${prev.name}" to "${next.name}"`
   if ((prev.photoId || '') !== (next.photoId || ''))
     return next.photoId ? `Updated ${next.name}'s photo` : `Removed ${next.name}'s photo`
-  const fields: string[] = []
-  if ((prev.gender || '') !== (next.gender || '')) fields.push('gender')
-  if ((prev.birthDate || '') !== (next.birthDate || '')) fields.push('birth date')
-  if ((prev.deathDate || '') !== (next.deathDate || '')) fields.push('death date')
-  if ((prev.notes || '') !== (next.notes || '')) fields.push('notes')
-  if (fields.length) return `Edited ${next.name} (${fields.join(', ')})`
   return null
 }

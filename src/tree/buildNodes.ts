@@ -24,22 +24,24 @@ export interface RTNode {
   spouses: RTRelation[]
 }
 
-const parentTypeToRT = (type: string): RTRelType => (type === 'blood' ? 'blood' : 'adopted')
-
+// Our data model has no parent-link types and no gender; relatives-tree wants
+// both, so every parent/child link is 'blood' and every node 'male' (the value
+// only influences which spouse ends up on which side, and partnerOrder already
+// controls that explicitly).
 const spouseStatusToRT = (status: string): RTRelType =>
-  status === 'divorced' || status === 'separated' ? 'divorced' : 'married'
+  status === 'separated' ? 'divorced' : 'married'
 
 export function buildNodes(tree: Tree): RTNode[] {
   return tree.members.map((m) => ({
     id: m.id,
-    gender: m.gender === 'female' ? 'female' : 'male',
-    parents: parentsOf(tree, m.id).map(({ parentId, parentage }) => ({
+    gender: 'male' as const,
+    parents: parentsOf(tree, m.id).map(({ parentId }) => ({
       id: parentId,
-      type: parentTypeToRT(parentage.type),
+      type: 'blood' as const,
     })),
-    children: childrenOf(tree, m.id).map(({ childId, parentage }) => ({
+    children: childrenOf(tree, m.id).map(({ childId }) => ({
       id: childId,
-      type: parentTypeToRT(parentage.type),
+      type: 'blood' as const,
     })),
     // partnersOf is ordered earliest-first, but relatives-tree lays extra spouses
     // out right-to-left (array[0] ends up rightmost). Reverse so the earliest

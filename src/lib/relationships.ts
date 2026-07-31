@@ -2,15 +2,7 @@
 // Keeping these pure makes them easy to reason about and test, and lets the
 // store hook stay thin.
 
-import type {
-  ID,
-  Member,
-  Parentage,
-  ParentType,
-  Partnership,
-  PartnerStatus,
-  Tree,
-} from '@shared/types'
+import type { ID, Member, Parentage, Partnership, PartnerStatus, Tree } from '@shared/types'
 import { newId } from './id'
 
 // --- lookups -----------------------------------------------------------------
@@ -124,30 +116,14 @@ export function removePartnership(tree: Tree, id: ID): Tree {
   return { ...tree, partnerships: tree.partnerships.filter((p) => p.id !== id) }
 }
 
-export function addParentage(
-  tree: Tree,
-  parent: ID,
-  child: ID,
-  type: ParentType = 'blood',
-): Tree {
+export function addParentage(tree: Tree, parent: ID, child: ID): Tree {
   if (parent === child) return tree
   const duplicate = tree.parentages.some((p) => p.parent === parent && p.child === child)
   if (duplicate) return tree
   // Guard against cycles: a child cannot also be an ancestor of its parent.
   if (isAncestor(tree, child, parent)) return tree
-  const parentage: Parentage = { id: newId(), parent, child, type }
+  const parentage: Parentage = { id: newId(), parent, child }
   return { ...tree, parentages: [...tree.parentages, parentage] }
-}
-
-export function updateParentage(
-  tree: Tree,
-  id: ID,
-  patch: Partial<Omit<Parentage, 'id'>>,
-): Tree {
-  return {
-    ...tree,
-    parentages: tree.parentages.map((p) => (p.id === id ? { ...p, ...patch } : p)),
-  }
 }
 
 export function removeParentage(tree: Tree, id: ID): Tree {

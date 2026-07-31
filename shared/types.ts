@@ -3,31 +3,14 @@
 
 export type ID = string
 
-export type Gender = 'male' | 'female' | 'other' | 'unknown'
-
-/** Status of a partnership between two adults. `divorced` models an ex-spouse. */
-export type PartnerStatus =
-  | 'married'
-  | 'partner'
-  | 'engaged'
-  | 'separated'
-  | 'divorced'
-  | 'widowed'
-
-/** How a parent relates to a child. Independent of any partnership. */
-export type ParentType = 'blood' | 'adopted' | 'step' | 'foster'
+/** Status of a partnership between two adults. `separated` models an ex-spouse. */
+export type PartnerStatus = 'married' | 'partner' | 'separated'
 
 export interface Member {
   id: ID
   name: string
   /** Key into the photos blob store; resolve to a URL with api.photoUrl(). */
   photoId?: string
-  gender?: Gender
-  /** ISO date, e.g. "1980-04-23". */
-  birthDate?: string
-  /** ISO date. Presence implies the member is deceased. */
-  deathDate?: string
-  notes?: string
   /**
    * Manual left-to-right order of this member's partners, by partner id (index 0
    * = earliest = drawn furthest left). Stored per-person (not on the shared
@@ -43,8 +26,6 @@ export interface Partnership {
   a: ID
   b: ID
   status: PartnerStatus
-  start?: string
-  end?: string
 }
 
 /** A directed parent -> child link, deliberately separate from partnerships. */
@@ -52,7 +33,6 @@ export interface Parentage {
   id: ID
   parent: ID
   child: ID
-  type: ParentType
   /**
    * Manual display order among a parent's children (lower = earlier/firstborn
    * = drawn further left). Set by drag-reordering; mirrored onto the co-parent's
@@ -81,17 +61,44 @@ export const emptyTree = (): Tree => ({
 export const PARTNER_STATUS_LABELS: Record<PartnerStatus, string> = {
   married: 'Married',
   partner: 'Partner',
-  engaged: 'Engaged',
   separated: 'Separated',
-  divorced: 'Divorced',
-  widowed: 'Widowed',
 }
 
-export const PARENT_TYPE_LABELS: Record<ParentType, string> = {
-  blood: 'Biological',
-  adopted: 'Adopted',
-  step: 'Step',
-  foster: 'Foster',
+/** Statuses removed in the schema simplification, mapped to their closest survivor. */
+const LEGACY_STATUS: Record<string, PartnerStatus> = {
+  engaged: 'partner',
+  divorced: 'separated',
+  widowed: 'married',
+}
+
+/**
+ * Upgrade a tree that may predate the simplified schema (stored blob, snapshot
+ * restore, or an imported backup): collapse legacy partner statuses and drop
+ * removed member/parentage fields (gender, birth/death dates, notes, parentage
+ * type). Pure and idempotent; ids, photoIds and ordering fields pass through
+ * untouched.
+ */
+export function normalizeTree(tree: Tree): Tree {
+  return {
+    ...tree,
+    members: tree.members.map((m) => {
+      const member: Member = { id: m.id, name: m.name }
+      if (m.photoId) member.photoId = m.photoId
+      if (m.partnerOrder) member.partnerOrder = m.partnerOrder
+      return member
+    }),
+    partnerships: tree.partnerships.map((p) => ({
+      id: p.id,
+      a: p.a,
+      b: p.b,
+      status: LEGACY_STATUS[p.status] ?? p.status,
+    })),
+    parentages: tree.parentages.map((p) => {
+      const parentage: Parentage = { id: p.id, parent: p.parent, child: p.child }
+      if (p.order != null) parentage.order = p.order
+      return parentage
+    }),
+  }
 }
 
 /** A single entry in the family-tree change log. */

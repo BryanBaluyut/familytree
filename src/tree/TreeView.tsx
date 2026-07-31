@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { Connector } from 'relatives-tree/lib/types'
-import type { ID, Member, Tree } from '@shared/types'
+import type { ID, Tree } from '@shared/types'
 import { memberById } from '../lib/relationships'
 import { Avatar } from '../components/Avatar'
 import { buildNodes } from './buildNodes'
@@ -17,15 +17,6 @@ const MAX_SCALE = 2.5
 const REFIT_JUMP = 5 // re-fit the view when the member count changes by at least this
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
-
-function lifespan(m: Member): string {
-  const by = m.birthDate?.slice(0, 4)
-  const dy = m.deathDate?.slice(0, 4)
-  if (by && dy) return `${by}–${dy}`
-  if (by) return `b. ${by}`
-  if (dy) return `d. ${dy}`
-  return ''
-}
 
 /** Clear browser caches + local/session storage, then reload to get a fresh app. */
 async function clearCacheAndRefresh() {
@@ -283,9 +274,7 @@ export function TreeView({
     )
   }
 
-  const dissolved = tree.partnerships.filter(
-    (p) => p.status === 'divorced' || p.status === 'separated',
-  )
+  const dissolved = tree.partnerships.filter((p) => p.status === 'separated')
   const posById = new Map<string, PlacedNode>(data.nodes.map((n) => [n.id, n]))
   const canvasW = data.canvas.width * W
   const canvasH = data.canvas.height * H
@@ -362,7 +351,7 @@ export function TreeView({
               return (
                 <g key={p.id}>
                   <line
-                    className={'divorce-line' + (p.status === 'separated' ? ' separated' : '')}
+                    className="divorce-line"
                     x1={ax + ux * off}
                     y1={ay + uy * off}
                     x2={bx - ux * off}
@@ -376,7 +365,6 @@ export function TreeView({
           {data.nodes.map((node) => {
             const member = memberById(tree, node.id)
             if (!member) return null
-            const span = lifespan(member)
             return (
               <div
                 key={node.id}
@@ -398,7 +386,6 @@ export function TreeView({
                 >
                   <Avatar member={member} size={54} />
                   <div className="tree-card-name">{member.name}</div>
-                  {span && <div className="tree-card-dates">{span}</div>}
                 </button>
               </div>
             )

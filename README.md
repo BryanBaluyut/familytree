@@ -4,8 +4,8 @@
 
 A private family-tree web app: add / edit / remove members (a name is required; an
 optional portrait photo is uploaded by clicking the avatar), link spouses & partners,
-parents and children, and handle real-world cases like **divorce and remarriage** —
-ex-spouses are kept, and children stay attached to both parents.
+parents and children, and handle real-world cases like **separation and remarriage** —
+ex-partners are kept, and children stay attached to both parents.
 
 ## Stack
 
@@ -17,12 +17,14 @@ ex-spouses are kept, and children stay attached to both parents.
 
 | Entity | Fields |
 | --- | --- |
-| **Member** | `id`, `name` (required), `photoId?`, `gender?`, `birthDate?`, `deathDate?`, `notes?` |
-| **Partnership** | two members + `status`: `married \| partner \| separated \| divorced \| widowed` |
-| **Parentage** | `parent → child` with `type`: `blood \| adopted \| step \| foster` |
+| **Member** | `id`, `name` (required), `photoId?` |
+| **Partnership** | two members + `status`: `married \| partner \| separated` |
+| **Parentage** | `parent → child` |
 
-A divorce simply flips a partnership's `status`; parentages are never touched, so
+A separation simply flips a partnership's `status`; parentages are never touched, so
 children remain linked to both parents. (A family tree is a *graph*, not a tree.)
+Trees saved under the older, richer schema (gender, dates, notes, parentage types,
+more statuses) are upgraded transparently on load by `normalizeTree()`.
 
 ## Develop
 

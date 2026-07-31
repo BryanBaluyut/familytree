@@ -4,8 +4,8 @@
 // restore-from-history (see restore()).
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ID, Member, ParentType, PartnerStatus, Tree } from '@shared/types'
-import { emptyTree } from '@shared/types'
+import type { ID, Member, PartnerStatus, Tree } from '@shared/types'
+import { emptyTree, normalizeTree } from '@shared/types'
 import { api, AuthError } from '../api'
 import {
   addParentage,
@@ -17,7 +17,6 @@ import {
   removePartnership,
   reorderChildren,
   reorderPartners,
-  updateParentage,
   updatePartnership,
   upsertMember,
 } from '../lib/relationships'
@@ -46,9 +45,8 @@ export interface TreeStore {
   linkPartner: (a: ID, b: ID, status?: PartnerStatus) => void
   setPartnerStatus: (partnershipId: ID, status: PartnerStatus) => void
   unlinkPartner: (partnershipId: ID) => void
-  linkChild: (parent: ID, child: ID, type?: ParentType) => void
-  linkParent: (child: ID, parent: ID, type?: ParentType) => void
-  setParentageType: (parentageId: ID, type: ParentType) => void
+  linkChild: (parent: ID, child: ID) => void
+  linkParent: (child: ID, parent: ID) => void
   unlinkParentage: (parentageId: ID) => void
   reorderPartners: (memberId: ID, orderedPartnerIds: ID[]) => void
   reorderChildren: (parentId: ID, orderedChildIds: ID[]) => void
@@ -286,25 +284,17 @@ export function useTree(onUnauthorized: () => void): TreeStore {
   )
 
   const linkChild = useCallback(
-    (parent: ID, child: ID, type: ParentType = 'blood') => {
+    (parent: ID, child: ID) => {
       const t = treeRef.current
-      if (t) commit(addParentage(t, parent, child, type))
+      if (t) commit(addParentage(t, parent, child))
     },
     [commit],
   )
 
   const linkParent = useCallback(
-    (child: ID, parent: ID, type: ParentType = 'blood') => {
+    (child: ID, parent: ID) => {
       const t = treeRef.current
-      if (t) commit(addParentage(t, parent, child, type))
-    },
-    [commit],
-  )
-
-  const setParentageType = useCallback(
-    (parentageId: ID, type: ParentType) => {
-      const t = treeRef.current
-      if (t) commit(updateParentage(t, parentageId, { type }))
+      if (t) commit(addParentage(t, parent, child))
     },
     [commit],
   )
@@ -336,12 +326,15 @@ export function useTree(onUnauthorized: () => void): TreeStore {
   const replaceTree = useCallback(
     (data: Pick<Tree, 'members' | 'partnerships' | 'parentages'>) => {
       const base = treeRef.current ?? emptyTree()
-      commit({
-        ...base,
-        members: data.members,
-        partnerships: data.partnerships,
-        parentages: data.parentages,
-      })
+      // normalize: an imported backup file may predate the simplified schema
+      commit(
+        normalizeTree({
+          ...base,
+          members: data.members,
+          partnerships: data.partnerships,
+          parentages: data.parentages,
+        }),
+      )
     },
     [commit],
   )
@@ -367,7 +360,6 @@ export function useTree(onUnauthorized: () => void): TreeStore {
     unlinkPartner,
     linkChild,
     linkParent,
-    setParentageType,
     unlinkParentage,
     reorderPartners: reorderPartnersCb,
     reorderChildren: reorderChildrenCb,

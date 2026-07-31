@@ -1,14 +1,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type {
-  Gender,
-  ID,
-  Member,
-  ParentType,
-  PartnerStatus,
-  Tree,
-} from '@shared/types'
-import { PARENT_TYPE_LABELS, PARTNER_STATUS_LABELS } from '@shared/types'
+import type { ID, Member, PartnerStatus, Tree } from '@shared/types'
+import { PARTNER_STATUS_LABELS } from '@shared/types'
 import { childrenOf, memberById, parentsOf, partnersOf } from '../lib/relationships'
 import type { TreeStore } from '../hooks/useTree'
 import { Avatar } from './Avatar'
@@ -78,51 +71,6 @@ export function MemberEditor({
         </div>
       </div>
 
-      <label className="field">
-        <span>Gender</span>
-        <select
-          className="input"
-          value={member.gender ?? 'unknown'}
-          onChange={(e) => patch({ gender: e.target.value as Gender })}
-        >
-          <option value="unknown">—</option>
-          <option value="female">Female</option>
-          <option value="male">Male</option>
-          <option value="other">Other</option>
-        </select>
-      </label>
-
-      <div className="field-row">
-        <label className="field">
-          <span>Born</span>
-          <input
-            type="date"
-            className="input"
-            value={member.birthDate ?? ''}
-            onChange={(e) => patch({ birthDate: e.target.value || undefined })}
-          />
-        </label>
-        <label className="field">
-          <span>Died</span>
-          <input
-            type="date"
-            className="input"
-            value={member.deathDate ?? ''}
-            onChange={(e) => patch({ deathDate: e.target.value || undefined })}
-          />
-        </label>
-      </div>
-
-      <label className="field">
-        <span>Notes</span>
-        <textarea
-          className="input"
-          rows={3}
-          value={member.notes ?? ''}
-          onChange={(e) => patch({ notes: e.target.value || undefined })}
-        />
-      </label>
-
       <RelationSection title="Partners" hint={partners.length > 1 ? 'drag to reorder · earliest on the left' : undefined}>
         <SortableList
           onReorder={(ids) => store.reorderPartners(member.id, ids)}
@@ -180,19 +128,6 @@ export function MemberEditor({
           return (
             <div className="relation-row" key={parentage.id}>
               <PersonButton name={parent.name} memberId={parentId} tree={tree} onSelect={onSelect} />
-              <select
-                className="input small"
-                value={parentage.type}
-                onChange={(e) =>
-                  store.setParentageType(parentage.id, e.target.value as ParentType)
-                }
-              >
-                {Object.entries(PARENT_TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
               <button
                 className="icon-btn"
                 title="Remove parent link"
@@ -227,19 +162,6 @@ export function MemberEditor({
                 content: (
                   <>
                     <PersonButton name={child.name} memberId={childId} tree={tree} onSelect={onSelect} />
-                    <select
-                      className="input small"
-                      value={parentage.type}
-                      onChange={(e) =>
-                        store.setParentageType(parentage.id, e.target.value as ParentType)
-                      }
-                    >
-                      {Object.entries(PARENT_TYPE_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
                     <button
                       className="icon-btn"
                       title="Remove child link"
