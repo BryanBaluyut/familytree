@@ -888,6 +888,33 @@ textarea.input {
   border-color: #c2ccd9;
 }
 
+/* Badge on people drawn twice (their card also appears in an in-law family
+   tree). Clicking jumps to the other card. */
+.twin-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.twin-badge:hover {
+  background: var(--accent-weak);
+}
+
 .tree-card.active {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-weak), var(--shadow);

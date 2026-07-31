@@ -5,7 +5,7 @@ import type { ID, Tree } from '@shared/types'
 import { memberById } from '../lib/relationships'
 import { Avatar } from '../components/Avatar'
 import { buildNodes } from './buildNodes'
-import { layoutForest, type PlacedNode } from './layout'
+import { layoutForest, memberIdOf, type PlacedNode } from './layout'
 
 const NODE_WIDTH = 170
 const NODE_HEIGHT = 140
@@ -84,6 +84,20 @@ export function TreeView({
     () => tree.members.filter((m) => !linkedIds.has(m.id)).sort((a, b) => a.name.localeCompare(b.name)),
     [tree, linkedIds],
   )
+
+  // Members drawn more than once — a primary card plus twin card(s) inside
+  // in-law family clusters. Maps member id -> all of their node ids.
+  const twinInstances = useMemo(() => {
+    const m = new Map<string, string[]>()
+    for (const n of data.nodes) {
+      const mid = memberIdOf(n.id)
+      const list = m.get(mid)
+      if (list) list.push(n.id)
+      else m.set(mid, [n.id])
+    }
+    for (const [mid, list] of m) if (list.length < 2) m.delete(mid)
+    return m
+  }, [data])
 
   const applyView = useCallback((next: View) => {
     viewRef.current = next
@@ -279,6 +293,19 @@ export function TreeView({
   const canvasW = data.canvas.width * W
   const canvasH = data.canvas.height * H
 
+  /** Pan to (and flash) the next card of a person who appears in two trees. */
+  function jumpToCounterpart(fromNodeId: string) {
+    const list = twinInstances.get(memberIdOf(fromNodeId))
+    if (!list || list.length < 2) return
+    const next = list[(list.indexOf(fromNodeId) + 1) % list.length]
+    const node = posById.get(next)
+    if (!node) return
+    centerOn(node)
+    setPulseTarget(next)
+    if (pulseTimer.current) clearTimeout(pulseTimer.current)
+    pulseTimer.current = setTimeout(() => setPulseTarget(null), 1100)
+  }
+
   return (
     <div className="tree-wrap">
       <div className="tree-toolbar">
@@ -363,13 +390,14 @@ export function TreeView({
           </svg>
 
           {data.nodes.map((node) => {
-            const member = memberById(tree, node.id)
+            const memberId = memberIdOf(node.id)
+            const member = memberById(tree, memberId)
             if (!member) return null
             return (
               <div
                 key={node.id}
                 className="tree-node"
-                data-member-id={node.id}
+                data-member-id={memberId}
                 style={{
                   width: NODE_WIDTH,
                   height: NODE_HEIGHT,
@@ -379,14 +407,23 @@ export function TreeView({
                 <button
                   className={
                     'tree-card' +
-                    (node.id === selectedId ? ' active' : '') +
+                    (memberId === selectedId ? ' active' : '') +
                     (node.id === pulseTarget ? ' pulse' : '')
                   }
-                  onClick={() => onSelect(node.id)}
+                  onClick={() => onSelect(memberId)}
                 >
                   <Avatar member={member} size={54} />
                   <div className="tree-card-name">{member.name}</div>
                 </button>
+                {twinInstances.has(memberId) && (
+                  <button
+                    className="twin-badge"
+                    title={`${member.name} appears in two trees — click to jump to the other card`}
+                    onClick={() => jumpToCounterpart(node.id)}
+                  >
+                    ⧉
+                  </button>
+                )}
               </div>
             )
           })}

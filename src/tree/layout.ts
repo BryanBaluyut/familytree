@@ -4,10 +4,14 @@
 // different people yields heavily OVERLAPPING layouts that can't be stitched
 // cleanly (they produce inverted/dangling links).
 //
-// So: render only NON-overlapping ("clean") clusters in the canvas — the main
-// tree plus any genuinely separate families — and send the handful of people a
-// clean cluster can't reach (e.g. a married-in spouse's own ancestors) to a
-// "shown separately" list. This keeps the drawn tree always correct.
+// So: draw NON-overlapping ("clean") clusters — the main tree plus any genuinely
+// separate families — and turn each leftover group (e.g. a married-in spouse's
+// own birth family) into its OWN tree cluster, with the member who joins it to
+// an already-drawn tree appearing in BOTH as a "twin" card (the double-entry
+// convention of printed genealogies; see TWIN_MARK). Solo children of a placed
+// parent are hung directly below that parent. Anything still unreachable goes
+// to a "shown separately" list. This keeps every drawn tree always correct —
+// no hand-stitched bridge connectors between layouts.
 
 import calcTree from 'relatives-tree'
 import type { Connector, Node } from 'relatives-tree/lib/types'
@@ -92,6 +96,7 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
   roots.sort((a, b) => countDesc(b) - countDesc(a))
 
   const placedIds = new Set<string>()
+  const drawnIds = new Set<string>() // ids actually drawn in a clean cluster
   const treeClusters: Candidate[] = []
   let separate: string[] = []
   for (const root of roots) {
@@ -106,7 +111,10 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
     if (gain === 0) continue
     if (!overlaps) {
       treeClusters.push(c) // fully disjoint -> draw it as a tree
-      for (const id of c.ids) placedIds.add(id)
+      for (const id of c.ids) {
+        placedIds.add(id)
+        drawnIds.add(id)
+      }
     } else {
       for (const id of c.ids) {
         if (!placedIds.has(id)) separate.push(id) // unreachable extras -> separate list
@@ -115,6 +123,19 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
     }
   }
   for (const n of rtNodes) if (!placedIds.has(n.id)) separate.push(n.id)
+
+  // Solo children of a drawn parent are attachOrphans' job (it needs positions,
+  // so it runs after packing); predict its membership now so those members are
+  // not swallowed into an in-law cluster below.
+  const orphanSet = predictOrphans(rtNodes, drawnIds, separate)
+
+  // Every remaining group of leftovers is an in-law birth family — e.g. a
+  // married-in spouse's parents and their whole family, which relatives-tree
+  // refuses to render from the main root. Each becomes its own tree cluster for
+  // the shelf packer, with the connecting relatives duplicated as twin cards.
+  const inLaws = buildInLawClusters(rtNodes, drawnIds, orphanSet, separate)
+  treeClusters.push(...inLaws.clusters)
+  if (inLaws.drawn.size) separate = separate.filter((id) => !inLaws.drawn.has(id))
 
   // Shelf-pack the clean (mutually disjoint) clusters.
   treeClusters.sort((a, b) => b.nodes.length - a.nodes.length)
@@ -145,13 +166,6 @@ export function layoutForest(rtNodes: RTNode[]): ForestLayout {
   // member that has a *placed* parent directly below that parent and draw the
   // connector ourselves. Handles chains (an orphan's own children) by iterating.
   attachOrphans(rtNodes, placed, connectors, (separate = [...separate]))
-
-  // Attach a placed member's unplaced *ancestors* (and their whole birth family).
-  // relatives-tree won't render a married-in spouse's own ancestry, so an in-law's
-  // parents/grandparents/etc. all land in `separate`. attachOrphans only reaches
-  // downward (children under a placed parent); this pass reaches upward — it lays
-  // each leftover family fragment out as its own sub-tree and links it to the tree.
-  attachAncestralClusters(rtNodes, placed, connectors, separate)
 
   // Attachment (and centering under an edge parent) can produce negative offsets;
   // shift everything back into the >= 0 canvas space.
@@ -277,33 +291,75 @@ function attachOrphans(
 }
 
 /**
- * Draw the leftovers that hang *above* a placed member — e.g. a married-in
- * spouse's parents and their entire birth family, which relatives-tree refuses to
- * render from the main root. Each connected fragment of leftovers is laid out on
- * its own (via relatives-tree, including the placed relatives it touches so its
- * orientation is correct, but with every relation pointing outside the fragment
- * pruned so the whole main tree isn't pulled back in), parked in clear space just
- * above the main tree (which guarantees no card overlaps another), and linked to
- * each anchor with an orthogonal connector. Pure layout — never touches the data.
+ * Node-id namespace for "twin" cards: the SAME member drawn a second time
+ * inside an in-law family cluster (the double-entry convention of printed
+ * genealogies). The suffix keeps React keys and position maps collision-free;
+ * strip it with memberIdOf() to reach the real member.
  */
-function attachAncestralClusters(
-  rtNodes: RTNode[],
-  placed: PlacedNode[],
-  connectors: Connector[],
-  separate: string[],
-): void {
-  if (separate.length === 0) return
-  const pos = new Map(placed.map((n) => [n.id, n]))
-  const nodeById = new Map(rtNodes.map((n) => [n.id, n]))
-  const sepSet = new Set(separate)
+export const TWIN_MARK = '__twin'
+const TWIN_RE = /__twin\d+$/
+/** True when a layout node id is a twin (duplicate) card. */
+export const isTwinId = (id: string): boolean => TWIN_RE.test(id)
+/** The real member id behind any layout node id (twin or primary). */
+export const memberIdOf = (id: string): string => id.replace(TWIN_RE, '')
 
+/**
+ * Predict which leftover members attachOrphans will hang below a drawn parent.
+ * attachOrphans itself runs after shelf-packing (it needs positions); this is
+ * the same fixpoint on membership alone, so in-law clustering can skip them.
+ */
+function predictOrphans(
+  rtNodes: RTNode[],
+  drawnIds: Set<string>,
+  separate: string[],
+): Set<string> {
+  const parentIds = new Map(rtNodes.map((n) => [n.id, n.parents.map((p) => p.id)]))
+  const attached = new Set<string>()
+  let progress = true
+  while (progress) {
+    progress = false
+    for (const id of separate) {
+      if (attached.has(id)) continue
+      const parents = parentIds.get(id) || []
+      if (parents.some((pid) => drawnIds.has(pid) || attached.has(pid))) {
+        attached.add(id)
+        progress = true
+      }
+    }
+  }
+  return attached
+}
+
+/**
+ * Turn each connected group of leftover members — e.g. a married-in spouse's
+ * birth family, which relatives-tree refuses to draw from the main root — into
+ * its own standalone tree cluster for the shelf packer. The already-drawn
+ * relatives the group touches (its "anchors", e.g. the married-in spouse
+ * herself) are laid out WITH the group so relatives-tree orients it correctly,
+ * and are emitted as twin cards (see TWIN_MARK): the person simply appears in
+ * both trees, with no bridge connector to misread. Pure layout — never touches
+ * the data.
+ */
+function buildInLawClusters(
+  rtNodes: RTNode[],
+  drawnIds: Set<string>,
+  orphanSet: Set<string>,
+  separate: string[],
+): { clusters: Candidate[]; drawn: Set<string> } {
+  const clusters: Candidate[] = []
+  const drawn = new Set<string>()
+  const leftovers = separate.filter((id) => !orphanSet.has(id))
+  if (leftovers.length === 0) return { clusters, drawn }
+
+  const nodeById = new Map(rtNodes.map((n) => [n.id, n]))
+  const sepSet = new Set(leftovers)
   const relIds = (n: RTNode): string[] =>
     [...n.parents, ...n.children, ...n.spouses, ...n.siblings].map((r) => r.id)
 
-  // Connected components within the leftover set (each is one family fragment).
-  const clusters: string[][] = []
+  // Connected components within the leftover set (each is one family group).
+  const comps: string[][] = []
   const seen = new Set<string>()
-  for (const start of separate) {
+  for (const start of leftovers) {
     if (seen.has(start)) continue
     const comp: string[] = []
     const stack = [start]
@@ -320,41 +376,34 @@ function attachAncestralClusters(
         }
       }
     }
-    clusters.push(comp)
+    comps.push(comp)
   }
 
-  const pushSeg = (x1: number, y1: number, x2: number, y2: number) =>
-    connectors.push(
-      [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)] as Connector,
-    )
-
-  const attached = new Set<string>()
-  for (const comp of clusters) {
+  let twinCounter = 0
+  for (const comp of comps) {
     try {
-      if (placeCluster(comp)) for (const id of comp) attached.add(id)
+      const cand = clusterFor(comp)
+      if (cand) {
+        clusters.push(cand)
+        for (const id of comp) drawn.add(id)
+      }
     } catch (e) {
-      console.error('attachAncestralClusters failed for a cluster', e)
+      console.error('in-law cluster layout failed', e)
     }
   }
+  return { clusters, drawn }
 
-  // Anything we managed to draw leaves the "shown separately" list.
-  if (attached.size) {
-    const remaining = separate.filter((id) => !attached.has(id))
-    separate.length = 0
-    for (const id of remaining) separate.push(id)
-  }
-
-  function placeCluster(comp: string[]): boolean {
-    // Placed relatives this fragment touches — the anchors we hang it on.
+  function clusterFor(comp: string[]): Candidate | null {
+    // Drawn (or about-to-be-hung orphan) relatives this group touches.
     const anchors = new Set<string>()
     for (const id of comp) {
       const n = nodeById.get(id)
       if (!n) continue
-      for (const nb of relIds(n)) if (pos.has(nb)) anchors.add(nb)
+      for (const nb of relIds(n)) if (drawnIds.has(nb) || orphanSet.has(nb)) anchors.add(nb)
     }
-    if (anchors.size === 0) return false // nothing placed to attach to
+    if (anchors.size === 0) return null // nothing drawn to relate to -> stays separate
 
-    // Lay the fragment out on its own, INCLUDING the anchors so relatives-tree
+    // Lay the group out on its own, INCLUDING the anchors so relatives-tree
     // orients it correctly; prune every relation pointing outside this scope so
     // the anchors act as leaves (we don't want to drag the whole main tree in).
     const scope = new Set<string>([...comp, ...anchors])
@@ -371,7 +420,7 @@ function attachAncestralClusters(
       }
     })
 
-    // Root at a fragment progenitor (no parents in scope, has children).
+    // Root at a group progenitor (no parents in scope, has children).
     const inScope = (rels: RTRelation[]) => rels.filter((r) => scope.has(r.id)).length
     const root =
       comp.find((id) => {
@@ -382,51 +431,16 @@ function attachAncestralClusters(
       comp[0]
 
     const rel = calcTree(sub as unknown as readonly Node[], { rootId: root })
-    const local = new Map(rel.nodes.map((n) => [n.id, { left: n.left, top: n.top }]))
-
-    // Primary anchor = one that got placed in the sub-layout; align the fragment's
-    // horizontal position on it so its bridge connector is a straight drop.
-    const primary = [...anchors].find((a) => local.has(a))
-    if (!primary) return false
-    const aLocal = local.get(primary) as { left: number; top: number }
-    const aReal = pos.get(primary) as PlacedNode
-    const dx = aReal.left - aLocal.left
-
-    // Lift the whole sub-layout into clear space just above the main tree.
-    let mainTop = 0
-    for (const n of placed) mainTop = Math.min(mainTop, n.top)
-    let maxLocalTop = 0
-    for (const n of rel.nodes) maxLocalTop = Math.max(maxLocalTop, n.top)
-    const dy = mainTop - GAP - 2 - maxLocalTop
-
-    // Place the fragment's members (skip anchors — already on the canvas).
-    let placedAny = false
-    for (const id of comp) {
-      const lp = local.get(id)
-      if (!lp) continue
-      const node = { id, left: lp.left + dx, top: lp.top + dy }
-      placed.push(node)
-      pos.set(id, node)
-      placedAny = true
+    const nodes: PlacedNode[] = rel.nodes.map((n) => ({
+      id: anchors.has(n.id) ? `${n.id}${TWIN_MARK}${++twinCounter}` : n.id,
+      left: n.left,
+      top: n.top,
+    }))
+    return {
+      ids: new Set(nodes.map((n) => n.id)),
+      canvas: rel.canvas,
+      nodes,
+      connectors: rel.connectors.map((c) => [c[0], c[1], c[2], c[3]] as Connector),
     }
-    if (!placedAny) return false
-
-    // Redraw the fragment's internal connectors at the new offset.
-    for (const c of rel.connectors) pushSeg(c[0] + dx, c[1] + dy, c[2] + dx, c[3] + dy)
-
-    // Bridge each anchor's spot in the sub-layout down to its real card, so the
-    // parked fragment visibly connects to the tree.
-    for (const a of anchors) {
-      const la = local.get(a)
-      if (!la) continue
-      const real = pos.get(a) as PlacedNode
-      const phantomX = la.left + dx + 1
-      const phantomTop = la.top + dy
-      const realX = real.left + 1
-      const realTop = real.top
-      pushSeg(phantomX, phantomTop, phantomX, realTop) // down at the anchor's column
-      if (phantomX !== realX) pushSeg(phantomX, realTop, realX, realTop) // across to the card
-    }
-    return true
   }
 }
